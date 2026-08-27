@@ -1,3 +1,3 @@
-1..10 | ForEach-Object {
+1..3 | ForEach-Object {
     Start-Process python -ArgumentList "./multicast.py $_"
 }
