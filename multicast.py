@@ -46,7 +46,7 @@ def receive_multicast(multicast_socket, process_id):
             data, address = multicast_socket.recvfrom(1024)
             message = json.loads(data.decode("utf-8"))
 
-            if (message['id'] == process_id):
+            if (message['id'] == process_id or (message['receiver'] != 0 and message['receiver'] != process_id)):
                 continue
 
             print(f"{process_id}: Mensagem recebida: {message['message']}\n")
@@ -58,9 +58,15 @@ def write(multicast_socket, process_id):
         print("Enviar mensagem: ")
         message = {
             "id": process_id,
-            "message": input()
+            "message": input(),
+            "receiver": 0
         }
 
+        print("Enviar mensagem em grupo? (s - Sim / id do processo - Nao)")
+        input_message = input()
+        if (input_message != "s"):
+            message['receiver'] = int(input_message)
+        
         try:
             broadcast(multicast_socket, message)
         except:
