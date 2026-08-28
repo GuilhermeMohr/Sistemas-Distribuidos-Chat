@@ -1,0 +1,44 @@
+{
+  "_comment": "Brainiac Context — Model tier mapping for Claude Code subagents. Each tier maps to a (model, effort) pair. Agent-templates declare `claude_subagent.tier` (one of read-analysis | implementation | arch-critical); the agents-sync skill (Phase 2) resolves the tier to concrete model + effort fields in the projected .claude/agents/<name>.md. Tier abstraction isolates the canonical from model versioning — when Anthropic releases new models, only this file changes (centralized upgrade path).",
+  "_policy": "No haiku in Brainiac canonical. Discovery and analysis of artifacts/code in dense technical context require consistent reasoning; haiku is optimized for latency, not for semantic discovery. Cost tradeoff is accepted in exchange for analysis quality. See Pré-req D ADR (multi-agent orchestration MVP scope) for full rationale.",
+  "_effort_enum": "Valid effort values per Claude Code subagent spec: low | medium | high | xhigh | max",
+  "_when_to_apply": {
+    "read-analysis": "Read-only discovery, artifact analysis, summarization, preliminary code review. Examples: research subagents (intent/ADR/codebase scan), QA evidence scan, status reports, dispatch summaries.",
+    "implementation": "Implementation that sonnet delivers well with max effort. Examples: isolated backend module, isolated frontend module, mechanical refactor, parallel test generation, fixture-bound bug fix.",
+    "arch-critical": "Architectural decisions, security, payment, migration, tenant isolation, public contracts. Examples: ADR drafting, auth changes, schema migration, integration design, contract API breaking changes.",
+    "orchestrator": "Main Orchestrator of a Master Orchestration Run (MOR): owns the master plan, heartbeat health-checks, cross-review and serial integration across axes. Opus + max effort.",
+    "axis-lead": "Background Session leading one axis (a full independent cycle): spawns specialists, drives RED->GREEN->review, reports the Axis Report to the Main. Opus + max effort, own worktree.",
+    "specialist": "Nested subagent under an Axis Lead: researcher / TDD implementer / reviewer / qa. Sonnet + max effort."
+  },
+  "tiers": {
+    "read-analysis": {
+      "model": "sonnet",
+      "effort": "medium"
+    },
+    "implementation": {
+      "model": "sonnet",
+      "effort": "max"
+    },
+    "arch-critical": {
+      "model": "opus",
+      "effort": "max"
+    },
+    "orchestrator": {
+      "model": "opus",
+      "effort": "max"
+    },
+    "axis-lead": {
+      "model": "opus",
+      "effort": "max"
+    },
+    "specialist": {
+      "model": "sonnet",
+      "effort": "max"
+    }
+  },
+  "_model_aliases_comment": "Hybrid model resolution (Iron Law 6 v2 / orchestration v3): an abstract tier resolves to an abstract model name, which resolves through this map to the current canonical concrete model id. A work-packet may pin a specific version via `model_override` (e.g. claude-opus-4-8); otherwise the abstract default applies. Single update point when Anthropic ships a new default model — never edit dispersed frontmatter.",
+  "model_aliases": {
+    "opus": "claude-opus-4-8",
+    "sonnet": "claude-sonnet-4-6"
+  }
+}

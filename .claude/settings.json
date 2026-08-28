@@ -1,0 +1,159 @@
+{
+  "_comment": "Brainiac Context — Claude Code hooks settings template. Copie para .claude/settings.json do seu projeto e ajuste se necessário. Veja INSTALL.md para passo-a-passo.",
+
+  "env": {
+    "BRAINIAC_LANG": "pt-BR",
+    "_comment_bypass": "BRAINIAC_CONTEXT_GATE_BYPASS controla bypass do Minimum Context Gate (v1.23.0+). BRAINIAC_RESEARCH_GATE_BYPASS controla bypass do Context Research Gate (v1.24.0+). NUNCA defina ambos como 'true' aqui — settings.json é versionada e bypass=true viraria gate permissivo silencioso commitado. Hooks bloqueiam fatal nesse caso. Bypass ad-hoc: use shell env OR .claude/settings.local.json (não versionada).",
+    "BRAINIAC_CONTEXT_GATE_BYPASS": "false",
+    "BRAINIAC_CONTEXT_GATE_BYPASS_REASON": "",
+    "BRAINIAC_RESEARCH_GATE_BYPASS": "false",
+    "BRAINIAC_RESEARCH_GATE_BYPASS_REASON": "",
+    "BRAINIAC_KNOWLEDGE_GATE_BYPASS": "false",
+    "BRAINIAC_KNOWLEDGE_GATE_BYPASS_REASON": ""
+  },
+
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/session-start.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: carregando contratos do framework..."
+          }
+        ]
+      }
+    ],
+
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/prompt-reminder.sh",
+            "timeout": 5,
+            "statusMessage": "Brainiac: detectando trigger pattern..."
+          }
+        ]
+      }
+    ],
+
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/canonical-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: protegendo canonicals em agents/brainiac/..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/pretool-agent-envelope-guard.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: verificando binding de specialist (allowed_paths)..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/knowledge-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: verificando consulta a knowledge (policy do INDEX)..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/context-load-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: verificando pacote mínimo de contexto..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/context-research-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: verificando research report..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/clean-code-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: validando Clean Code..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/secret-read-gate.sh",
+            "timeout": 5,
+            "statusMessage": "Brainiac: verificando alvo (anti-secret)..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/workflow-bash-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: verificando Bash em workflow subagent..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/no-auto-merge-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: verificando merge/push durante run ativa..."
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/learn-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: validando Learn Gate..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/qa-gate.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: checando QA (advisory)..."
+          }
+        ]
+      }
+    ],
+
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/pre-compact.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: salvando handoff antes do compact..."
+          }
+        ]
+      }
+    ],
+
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/brainiac/post-compact.sh",
+            "timeout": 10,
+            "statusMessage": "Brainiac: injetando checklist de reload pós-compact..."
+          }
+        ]
+      }
+    ]
+  }
+}

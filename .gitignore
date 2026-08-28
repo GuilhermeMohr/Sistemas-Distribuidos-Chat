@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Brainiac / Claude Code local settings (nunca versionar)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Brainiac runtime projection (ADR-023) — regenerada por /brainiac-context-agents-sync
+.claude/agents/
+
+# Brainiac worktrees — arvores de trabalho locais, nunca versionadas.
+# Escopo restrito a worktrees/: nao esconder settings.json nem hooks/brainiac/.
+.claude/worktrees/
+
+# Brainiac worktrees — arvores de trabalho locais, nunca versionadas.
+# Escopo restrito a worktrees/: nao esconder settings.json nem hooks/brainiac/.
+.codex/worktrees/
+
+# Brainiac Git layer — regenerada por install/update, nunca versionada.
+.brainiac/
