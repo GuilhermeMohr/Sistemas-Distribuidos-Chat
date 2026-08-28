@@ -1,0 +1,118 @@
+# Brainiac branch policy — diagnóstico, não enforcement.
+#
+# Este workflow REPORTA se a combinação head×base respeita a política de branch
+# do projeto. Ele não bloqueia por si só: bloqueio real depende de branch
+# protection ou ruleset server-side configurado para exigir este check. Sem
+# isso, a política é observada, não garantida — e o job diz isso no output.
+#
+# Sem filtro de branch no pull_request, de propósito: filtros de evento são
+# estáticos e não leem `config/gitflow.json`, então nomear a branch de
+# integração aqui exigiria re-renderizar o workflow por projeto. Disparar em
+# todo PR e decidir DENTRO do job cobre integração customizada sem re-render.
+#
+# `push` usa um superset estático das branches de longa vida em qualquer perfil
+# suportado. Um projeto cuja integração tem nome fora deste conjunto precisa que
+# `/brainiac-context-github` re-renderize esta lista — inevitável para push.
+
+name: Brainiac branch policy
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - 'release/**'
+      - 'hotfix/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brainiac-branch-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Branch policy
+    runs-on: ubuntu-latest
+    steps:
+      # `fetch-depth: 0` é requisito, não preferência. O resolver exige que a
+      # branch de integração EXISTA (local ou em `origin/`) antes de aceitar o
+      # perfil lean, e o checkout default traz apenas a ref do evento — num PR,
+      # só `refs/pull/N/merge`. Sem o histórico completo o resolver não acha
+      # `develop`, fecha por config inválida e todo PR de projeto lean falha por
+      # um motivo que não é o dele.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Refs vêm por `env:`, NUNCA interpoladas no corpo do script.
+      #
+      # `${{ github.head_ref }}` é controlado por quem abre o PR e um nome de
+      # branch aceita metacaracteres de shell. Interpolar textualmente permite
+      # que um PR reescreva a sintaxe do script e execute comandos no runner.
+      # Pela variável de ambiente o valor é dado, nunca código.
+      - name: Evaluate branch policy
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -uo pipefail
+
+          # Motor ausente FALHA. Um check marcado como obrigatório que passa sem
+          # o motor não enforça política nenhuma — ele apenas produz um verde
+          # que significa "não verifiquei". Esse é o mesmo modo de falha que
+          # este workflow existe para eliminar: silêncio lido como aprovação.
+          #
+          # Mas a condição testada é PRESENÇA, não bit de execução: o motor é
+          # invocado por `bash "$POLICY"` mais abaixo, então o bit não decide se
+          # ele roda. Exigi-lo transformava um arquivo versionado como 100644 em
+          # falha de workflow em todo checkout Linux — um vermelho que não
+          # corresponde a defeito nenhum, tão inútil quanto o verde acima.
+          POLICY=".github/scripts/brainiac-branch-policy.sh"
+          if [ ! -f "$POLICY" ]; then
+            echo "::error::$POLICY ausente — a política NÃO foi verificada."
+            echo "::error::Rode /brainiac-context-github para (re)instalar motor e resolver."
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            HEAD_REF="$PR_HEAD_REF"
+            BASE_REF="$PR_BASE_REF"
+          else
+            # Em push não existe par head/base. A ref É avaliada — contra a
+            # própria política, não por igualdade artificial consigo mesma.
+            # Sair cedo aqui declararia "branch reconhecida" para qualquer nome
+            # que o filtro do trigger deixasse passar, incluindo formas
+            # malformadas como `release/not-semver`.
+            HEAD_REF="${GITHUB_REF#refs/heads/}"
+            BASE_REF=""
+          fi
+
+          rc=0
+          if [ -n "$BASE_REF" ]; then
+            echo "Avaliando par: head='$HEAD_REF' base='$BASE_REF'"
+            out="$(bash "$POLICY" --head "$HEAD_REF" --base "$BASE_REF" 2>&1)" || rc=$?
+          else
+            echo "Avaliando ref de push: '$HEAD_REF'"
+            out="$(bash "$POLICY" --validate-ref "$HEAD_REF" 2>&1)" || rc=$?
+          fi
+          echo "$out"
+
+          case "$rc" in
+            0) echo "::notice::Política de branch respeitada." ;;
+            1) echo "::error::Política de branch violada." ;;
+            2) echo "::error::Configuração de workflow Git inválida." ;;
+            *) echo "::error::Motor de política retornou código inesperado ($rc)." ;;
+          esac
+          exit "$rc"
+
+      - name: Enforcement disclosure
+        if: always()
+        run: |
+          echo "Este check é DIAGNÓSTICO. Ele só bloqueia merge se estiver marcado como"
+          echo "obrigatório por branch protection ou ruleset. Sem essa configuração, a"
+          echo "política é observada, não garantida."

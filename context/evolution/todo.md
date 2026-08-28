@@ -26,4 +26,6 @@ Project backlog. Tracked items beyond active intents (research debt, follow-ups,
 
 - [ ] `.gitignore` criado no bootstrap — revisar cobertura Python.
 - [ ] [SEC] Documentar no relatório (§10.6) que o tráfego multicast é não-cifrado/não-autenticado (limitação inerente ao trabalho, não defeito).
-- [ ] Configurar camada operacional GitHub (rodar `/brainiac-context-github`) — modo `partial` detectado.
+- [x] Camada operacional GitHub aplicada (2026-08-28): labels canonical (8 famílias) + 5 labels `area:*` do projeto, templates `.github/` (issue/PR + branch-policy), bloco GitHub Operational Protocol no AGENTS.md.
+- [ ] **GitHub Project** (Kanban Brainiac) — pulado no bootstrap (overhead p/ time acadêmico). Criar depois se o time quiser board.
+- [ ] **Branch protection em `main`** — requer permissão **ADMIN** (só o dono `GuilhermeMohr` tem; sou WRITE). Guilherme deve aplicar via `/brainiac-context-github` ou nas settings do repo. Nota: hoje o time faz push direto em `main`; ativar proteção exige migrar p/ fluxo de PR.

@@ -1,0 +1,79 @@
+name: Feature
+description: Feature implementation guided by Brainiac Intent
+title: "feat(scope): "
+labels:
+  - type:feature
+  - status:triage
+  - brainiac:intent-required
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why does this feature exist?
+    validations:
+      required: true
+
+  - type: input
+    id: intent
+    attributes:
+      label: Brainiac Intent
+      description: Path to the related intent file
+      placeholder: context/intent/feature-*.md
+    validations:
+      required: true
+
+  - type: input
+    id: adr
+    attributes:
+      label: Related ADR
+      description: Path to the technical decision
+      placeholder: context/decisions/NNN-*.md
+    validations:
+      required: false
+
+  - type: input
+    id: code_standards
+    attributes:
+      label: Code Standards version
+      description: Standards-Version pinned in context/code-standards.md
+      placeholder: "1.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in scope and what is not?
+      value: |
+        Includes:
+        -
+
+        Does not include:
+        -
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Mandatory validation
+      value: |
+        - [ ] Sensors (lint, typecheck, tests)
+        - [ ] Smoke
+        - [ ] Phase 1 Quality Gate (agent-reviewer.md): no Block findings
+        - [ ] Learn Gate (Phase 2 Knowledge Capture)
+    validations:
+      required: true

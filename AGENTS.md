@@ -87,6 +87,57 @@ Enunciado do trabalho (PDF UNIVALI) > Brainiac Context (`context/`) > Código > 
 
 **Importante:** Nunca commitar `.env` ou `.env.local`. Adicione ao `.gitignore`.
 
+## Project-specific labels
+
+Labels `area:*` específicas deste projeto (além das universais Brainiac):
+
+- `area:networking` — camada de rede: multicast UDP, sockets, endereçamento (R1)
+- `area:ordering` — ordem causal/total, relógio vetorial, buffer de entrega (R4)
+- `area:global-state` — estado global, snapshot Chandy-Lamport (R6)
+- `area:concurrency` — threads, locks, estado compartilhado interno do nó
+- `area:report` — relatório técnico e seminário (R7, entregas)
+
+Adicione novas `area:*` aqui conforme surgirem novas áreas no projeto.
+
+---
+
+# GitHub Operational Protocol — Brainiac
+
+This project uses Brainiac Framework and GitHub as an operational layer.
+
+## Mandatory flow
+
+Intent/ADR → Issue → Worktree + Branch → Draft PR → Sensors/Smoke → Learn Gate (Phase 1 + Phase 2) → Ready for Review → Human Merge → Worktree cleanup
+
+## Rules
+
+1. Before any relevant implementation, verify whether a GitHub Issue exists.
+2. If no issue exists, create one or request creation.
+3. The issue must point to Intent/ADR when applicable.
+4. **Load `context/code-standards.md` before implementing** — Hard gates and reviewer checklist live there.
+5. The branch must follow `<type>/<issue-number>-<short-scope>`.
+6. Open a Draft PR early.
+7. Link the PR with `Closes #XX`.
+8. Use official labels.
+9. Update GitHub Project, if configured.
+10. Do not implement outside the issue/intent scope.
+11. Do not decide architecture without an ADR.
+12. Run sensors (lint, typecheck, tests) before declaring done.
+13. Pass through the Learn Gate (Phase 1 Quality Gate via `agent-reviewer.md` + Phase 2 Knowledge Capture) before closing.
+14. Do not close the issue manually if the PR can close it automatically.
+15. Do not merge without human authorization.
+
+## Brainiac/GitHub relation
+
+- GitHub Issue = operational unit
+- Brainiac Intent = intent and scope
+- ADR = technical decision
+- PR = reviewable implementation
+- Code Standards = quality contract (`context/code-standards.md`)
+- Reviewer agent = Phase 1 Quality Gate executor (`context/agents/brainiac/agent-reviewer.md`)
+- QA Gate = validation evidence
+- Buglog = bug learning
+
 <!-- PROJECT:OVERRIDES-END -->
 
 ---

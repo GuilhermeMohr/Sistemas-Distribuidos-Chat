@@ -1,0 +1,74 @@
+name: Bug
+description: Bug fix with Brainiac triage (L1/L2/L3)
+title: "bug(scope): "
+labels:
+  - type:bug
+  - status:triage
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: level
+    attributes:
+      label: Brainiac bug level
+      options:
+        - L1 - local/simple (buglog only)
+        - L2 - behavior/regression (requires bug intent)
+        - L3 - architectural/cross-layer (requires bug intent + ADR)
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      value: |
+        Logs:
+        Run ID:
+        Batch ID:
+        Workflow execution:
+        DB evidence:
+        Files:
+    validations:
+      required: false
+
+  - type: input
+    id: bug_intent
+    attributes:
+      label: Bug Intent (required for L2/L3)
+      placeholder: context/intent/bug-*.md
+    validations:
+      required: false
+
+  - type: input
+    id: adr
+    attributes:
+      label: ADR (required for L3)
+      placeholder: context/decisions/NNN-*.md
+    validations:
+      required: false
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of Done
+      value: |
+        - [ ] Root cause investigated
+        - [ ] Fix implemented
+        - [ ] Regression test created OR infeasibility justified in note
+        - [ ] Buglog updated (L1+)
+        - [ ] Sensors executed
+        - [ ] Phase 1 Quality Gate passed (agent-reviewer.md, no Block findings)
+        - [ ] Learn Gate executed (Phase 2 Knowledge Capture)
