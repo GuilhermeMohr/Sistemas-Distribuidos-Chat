@@ -6,9 +6,9 @@
 | Sensor | Tool | Command | Signal |
 |---|---|---|---|
 | Sintaxe | CPython | `python -m py_compile multicast.py` | Falha = erro de sintaxe |
-| Smoke multi-nó | manual | `pwsh ./run.ps1` (ou 3 terminais `python multicast.py <id>`) | Mensagem de grupo de um nó aparece nos demais |
-| Corretude ordem total (R4) | manual | Rodar simulação com mensagens concorrentes | **Filas de delivery ordenadas idênticas em todos os nós** (critério de corretude do enunciado §8) |
-| Escala (R3) | manual | Iniciar 3, 8 e 15 nós via `nos.json` sem alterar código | Todos ingressam no grupo e trocam mensagens |
+| Corretude ordem total (R4) | pytest-less | `python test_ordem_total.py` | `TODOS OS TESTES PASSARAM` (concorrente/causal/duplicata) |
+| Smoke multi-nó | manual | `pwsh ./run.ps1 -Nodes 3` (ou N terminais `python multicast.py <id>`) | Mensagem de grupo de um nó aparece nos demais |
+| Escala (R3) | manual | `run.ps1 -Nodes 3|8|15` (gera `nos.json` e sobe N) sem alterar código | Todos ingressam no grupo; **filas de delivery idênticas** (§8) |
 
 ## How Model Should React
 
