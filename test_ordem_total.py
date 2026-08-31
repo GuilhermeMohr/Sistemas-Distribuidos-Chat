@@ -88,8 +88,38 @@ def teste_duplicata():
     assert nodes["2"].delivery_order == ["1:1"], "duplicata processada 2x!"
 
 
+def teste_snapshot():
+    """Chandy-Lamport: todos os nós concluem e capturam estado consistente."""
+    nodes = novo_sistema()
+    m1 = nodes["1"].on_send("antes do snapshot", 0)
+    acks = []
+    entrega_data(nodes["2"], m1, acks)
+    entrega_data(nodes["3"], m1, acks)
+    propaga_acks(nodes, acks)  # m1 entregue em todos -> delivery_order=[1:1]
+
+    marker = nodes["1"].start_snapshot()          # nó1 é o iniciador
+    pendentes = [("1", marker)]                    # MARKER é multicast
+    while pendentes:
+        src, mk = pendentes.pop(0)
+        for nid, node in nodes.items():
+            if nid == src:
+                continue
+            fwd, _ = node.on_marker(mk)
+            if fwd is not None:
+                pendentes.append((nid, fwd))
+
+    for nid, node in nodes.items():
+        snap = node.get_snapshot()
+        assert snap is not None and snap["done"], f"nó {nid} não concluiu snapshot"
+    # estado global consistente: todos capturaram a mesma delivery_order
+    ordens = [tuple(n.get_snapshot()["local_state"]["delivery_order"])
+              for n in nodes.values()]
+    assert all(o == ("1:1",) for o in ordens), f"estado inconsistente: {ordens}"
+
+
 if __name__ == "__main__":
     teste_concorrente()
     teste_causal()
     teste_duplicata()
+    teste_snapshot()
     print("TODOS OS TESTES PASSARAM")

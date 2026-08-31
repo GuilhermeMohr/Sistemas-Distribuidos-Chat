@@ -28,7 +28,7 @@ Python 3 (stdlib: `socket`, `threading`, `json`, `struct`, `sys`, `time`) + laun
 | **R3** | Nº de nós configurável ≥ 15 | Iniciar com 3, 8 e 15 nós sem alterar código | ✅ **Feito** — `nos.json` + `run.ps1 -Nodes`; validado com 3 e 15 nós reais |
 | **R4** | **Ordem total via relógio vetorial** (Lamport + melhorias) | Todos os nós entregam as mensagens na MESMA ordem | ✅ **Feito** (§5.3) — relógio vetorial + `total_key` + ACK de estabilidade + hold-back queue ([[decisions/0005]]); ordem global idêntica validada |
 | **R5** | Tela do nó | Envio p/ nó específico (unicast), envio p/ grupo, ordem local, ordem global | ✅ **Feito** — menu com unicast/grupo + relógio vetorial + ordem local + ordem global |
-| **R6** | **Estado global** | Comando dispara captura de estado global consistente e exibe | ❌ Pendente (§5.5) — decisão em [[decisions/0006]]; próximo (CP4) |
+| **R6** | **Estado global** | Comando dispara captura de estado global consistente e exibe | ✅ **Feito** (§5.5) — snapshot Chandy-Lamport ([[decisions/0006]]); validado com 3 e 8 nós, estado consistente |
 | **R7** | Relatório detalhado | Documento com todos os itens da §10 do enunciado | ❌ Pendente (derivado de `context/`) |
 | **R8** | Eleição de líder (se adotada) | Passo a passo do algoritmo + reeleição ao cair o líder | ⚪ Opcional — só se Abordagem B em [[decisions/0005]] |
 

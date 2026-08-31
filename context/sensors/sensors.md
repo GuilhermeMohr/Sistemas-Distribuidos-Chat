@@ -6,7 +6,7 @@
 | Sensor | Tool | Command | Signal |
 |---|---|---|---|
 | Sintaxe | CPython | `python -m py_compile multicast.py` | Falha = erro de sintaxe |
-| Corretude ordem total (R4) | pytest-less | `python test_ordem_total.py` | `TODOS OS TESTES PASSARAM` (concorrente/causal/duplicata) |
+| Corretude ordem total + snapshot | pytest-less | `python test_ordem_total.py` | `TODOS OS TESTES PASSARAM` (concorrente/causal/duplicata/snapshot) |
 | Smoke multi-nó | manual | `pwsh ./run.ps1 -Nodes 3` (ou N terminais `python multicast.py <id>`) | Mensagem de grupo de um nó aparece nos demais |
 | Escala (R3) | manual | `run.ps1 -Nodes 3|8|15` (gera `nos.json` e sobe N) sem alterar código | Todos ingressam no grupo; **filas de delivery idênticas** (§8) |
 

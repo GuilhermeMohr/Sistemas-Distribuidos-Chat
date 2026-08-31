@@ -12,9 +12,9 @@ Project backlog. Tracked items beyond active intents (research debt, follow-ups,
 - [x] **CP1 — Infra (R3 + dívida técnica):** `nos.json` + `node_ids`; vetor com N posições; `message_id`=`origin:seq`; campo `type`; `recvfrom(65536)`; `state_lock` + `SO_REUSEPORT`; threads `daemon=True` + shutdown (`Event`); `except Exception`; `run.ps1 -Nodes`. (PR #1)
 - [x] **CP2 — Ordem total (R4/§5.3):** `holdback_queue`, `total_key`, `ACK`, `acks`, `try_deliver` (topo + ACK de todos + FIFO por origem), `delivery_order`, dedup. Validado: 3 e 15 nós reais + teste `test_ordem_total.py`. (PR #1)
 - [x] **CP3 — Tela (R5):** menu com envio unicast/grupo, relógio vetorial, ordem local, ordem global. (PR #1)
-- [ ] **CP4 — Snapshot (R6/§5.5):** `MARKER`, estado local + canais lógicos, término com MARKER de todos; comando de menu. ⬅️ **próximo**
-- [x] **CP5 (parcial) — Testes:** `test_ordem_total.py` (concorrente/causal/duplicata) + orquestradores reais 3/15 nós. Falta cenário de snapshot (após CP4).
-- [ ] **R7** — Relatório da Entrega 1 (§10): derivar dos artefatos `context/` + `PROJECT_STATUS.md`.
+- [x] **CP4 — Snapshot (R6/§5.5):** `MARKER`, estado local + canais lógicos por origem, término com MARKER de todos; menu 6 (iniciar) e 7 (mostrar). Validado com 3 e 8 nós reais. (PR #2)
+- [x] **CP5 — Testes:** `test_ordem_total.py` (concorrente/causal/duplicata/**snapshot**) + orquestradores reais 3/8/15 nós.
+- [ ] **R7** — Relatório da Entrega 1 (§10): derivar dos artefatos `context/` + `PROJECT_STATUS.md`. ⬅️ **próximo**
 
 ### Já concluído
 - [x] **R4/§5.2** — Relógio vetorial + entrega causal (`can_deliver`) (commit `faf894c`).

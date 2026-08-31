@@ -53,6 +53,11 @@ class Node:
         self.local_order = []             # ordem LOCAL (ordem de eventos deste nó)
         self.delivered_seq = {n: 0 for n in self.node_ids}  # FIFO por origem
 
+        # Snapshot Chandy-Lamport (R6): um registro por snapshot_id.
+        self.snapshots = {}
+        self.last_snapshot = None
+        self._snap_counter = 0
+
         self._lock = threading.Lock()
 
     # -- chave de ordem total -------------------------------------------------
@@ -109,6 +114,12 @@ class Node:
             acked = self.acks.setdefault(message_id, set())
             acked.add(origin)
             acked.add(self.process_id)
+            # Chandy-Lamport: grava a mensagem no estado do canal lógico da
+            # origem, para snapshots que já registraram estado local e ainda
+            # estão gravando esse canal.
+            for snap in self.snapshots.values():
+                if not snap["done"] and origin in snap["recording"]:
+                    snap["channel_state"][origin].append(message_id)
             delivered = self._try_deliver()
         ack = {"type": "ACK", "id": self.process_id, "message_id": message_id}
         return ack, delivered
@@ -155,6 +166,75 @@ class Node:
 
             delivered.append(message)
         return delivered
+
+    # -- snapshot Chandy-Lamport (R6) ----------------------------------------
+
+    def _record_local(self, snapshot_id, initiator):
+        """Registra o estado local e começa a gravar todos os canais de entrada.
+
+        Chamar com o lock. Canal lógico de entrada = cada outro nó (a mensagem
+        carrega sua origem, então o canal é identificado por ``message['id']``).
+        """
+        outros = [n for n in self.node_ids if n != self.process_id]
+        self.snapshots[snapshot_id] = {
+            "initiator": initiator,
+            "local_state": {
+                "vectorial_time": dict(self.vectorial_time),
+                "delivery_order": list(self.delivery_order),
+                "holdback": [m["message_id"] for m in self.holdback_queue],
+            },
+            "recording": set(outros),          # canais em gravação
+            "channel_state": {n: [] for n in outros},
+            "markers_from": set(),             # de quem já recebi MARKER
+            "done": False,
+        }
+
+    def _check_done(self, snap):
+        outros = {n for n in self.node_ids if n != self.process_id}
+        if snap["markers_from"] >= outros:
+            snap["done"] = True
+            self.last_snapshot = snap
+
+    def start_snapshot(self):
+        """Inicia um snapshot (este nó é o iniciador). Retorna o MARKER a difundir."""
+        with self._lock:
+            self._snap_counter += 1
+            snapshot_id = f"{self.process_id}-{self._snap_counter}"
+            self._record_local(snapshot_id, self.process_id)
+            self._check_done(self.snapshots[snapshot_id])  # caso N==1
+        return {"type": "MARKER", "id": self.process_id,
+                "snapshot_id": snapshot_id, "initiator": self.process_id}
+
+    def on_marker(self, message):
+        """Processa um MARKER. Retorna (marker_a_difundir_ou_None, snapshot_done)."""
+        sender = message["id"]
+        snapshot_id = message["snapshot_id"]
+        initiator = message["initiator"]
+        forward = None
+        with self._lock:
+            first = snapshot_id not in self.snapshots
+            if first:
+                # Primeiro MARKER: registra estado local; o canal de origem
+                # deste MARKER fica vazio (nada o precedeu). Propaga o MARKER.
+                self._record_local(snapshot_id, initiator)
+                snap = self.snapshots[snapshot_id]
+                snap["recording"].discard(sender)
+                forward = {"type": "MARKER", "id": self.process_id,
+                           "snapshot_id": snapshot_id, "initiator": initiator}
+            else:
+                snap = self.snapshots[snapshot_id]
+                # MARKER subsequente: encerra a gravação do canal daquele nó.
+                snap["recording"].discard(sender)
+            snap["markers_from"].add(sender)
+            self._check_done(snap)
+            done = snap["done"]
+        return forward, done
+
+    def get_snapshot(self, snapshot_id=None):
+        with self._lock:
+            if snapshot_id is None:
+                return self.last_snapshot
+            return self.snapshots.get(snapshot_id)
 
     # -- leitura de estado (para a tela) -------------------------------------
 
@@ -230,7 +310,13 @@ def receive_loop(sock, node, group, port, stop_event):
             elif mtype == "ACK":
                 delivered = node.on_ack(message)
                 display_delivered(node, delivered)
-            # MARKER: reservado para o snapshot (CP4).
+            elif mtype == "MARKER":
+                forward, done = node.on_marker(message)
+                if forward is not None:
+                    broadcast(sock, group, port, forward)
+                if done:
+                    print(f"\n[snapshot {message['snapshot_id']} concluído "
+                          f"neste nó — opção 7 para ver]")
         except OSError:
             break  # socket fechado no shutdown
         except Exception as error:
@@ -250,7 +336,8 @@ MENU = """
 [3] Mostrar relógio vetorial
 [4] Mostrar ordem local
 [5] Mostrar ordem global
-[6] Iniciar snapshot global   (CP4 — em breve)
+[6] Iniciar snapshot global (Chandy-Lamport)
+[7] Mostrar último snapshot
 [0] Sair
 """
 
@@ -277,7 +364,17 @@ def ui_loop(sock, node, group, port, stop_event):
         elif option == "5":
             print(f"Ordem global: {node.snapshot_view()['delivery_order']}")
         elif option == "6":
-            print("Snapshot Chandy-Lamport ainda não implementado (CP4).")
+            marker = node.start_snapshot()
+            broadcast(sock, group, port, marker)
+            print(f"Snapshot {marker['snapshot_id']} iniciado (MARKER difundido).")
+        elif option == "7":
+            snap = node.get_snapshot()
+            if snap is None:
+                print("Nenhum snapshot concluído ainda.")
+            else:
+                print(f"Último snapshot (iniciador {snap['initiator']}):")
+                print(f"  estado local: {snap['local_state']}")
+                print(f"  estado dos canais: {snap['channel_state']}")
         elif option == "0":
             stop_event.set()
             break

@@ -100,6 +100,20 @@ Adicione uma entry por arquivo em patterns/, seguindo o mesmo schema da seção 
 - **Triggers:** editar `can_deliver`/`vectorial_time`/`buffer`, ordem causal vs total, entrega de mensagem de grupo, R4
 - **File:** [`patterns/causal-delivery-vector-clock-buffer.md`](patterns/causal-delivery-vector-clock-buffer.md)
 
+### `totally-ordered-multicast-ack-holdback`
+- **Status:** consolidado
+- **Família:** ordenação / relógios lógicos
+- **Sintoma em 1 linha:** chave total + ACK de estabilidade + hold-back queue garantem ordem total sem líder.
+- **Triggers:** implementar ordem total, `total_key`, `acks`, `try_deliver`, estabilidade, R4/§5.3
+- **File:** [`patterns/totally-ordered-multicast-ack-holdback.md`](patterns/totally-ordered-multicast-ack-holdback.md)
+
+### `chandy-lamport-snapshot-multicast`
+- **Status:** consolidado
+- **Família:** estado global / snapshot
+- **Sintoma em 1 linha:** snapshot consistente via MARKER, com canais lógicos por origem sobre multicast.
+- **Triggers:** implementar estado global, `MARKER`, `start_snapshot`/`on_marker`, canais lógicos, R6/§5.5
+- **File:** [`patterns/chandy-lamport-snapshot-multicast.md`](patterns/chandy-lamport-snapshot-multicast.md)
+
 ---
 
 ## Cobertura

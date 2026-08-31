@@ -23,6 +23,8 @@ Modelagem sobre multicast UDP (ponto crítico):
 - **Termina** quando MARKERs de todos os `node_ids` foram recebidos.
 - **Estado capturado por nó:** `vectorial_time`, `delivery_order`, `holdback_queue`, e `channel_state[j]` (mensagens por canal lógico). Simplificação aceita: "estado do canal" = mensagens recebidas após o registro local e antes do MARKER daquele canal.
 
+> **Implementado (Build CP4, 2026-08-31):** `Node.start_snapshot`/`on_marker` + gravação de canal em `on_data`; menu opções 6 (iniciar) e 7 (mostrar). Validado com 3 e 8 nós reais — todos concluem com `delivery_order` idêntica (estado consistente). Pattern: [[knowledge/patterns/chandy-lamport-snapshot-multicast]].
+
 ## Alternatives considered
 
 ### Alternativa A — Chandy-Lamport (recomendada pelo enunciado)
@@ -64,3 +66,4 @@ O líder/coordenador consulta todos os nós e agrega as respostas.
 |---|---|---|
 | 2026-08-26 22:54 UTC-03:00 | Proposed | Decisão registrada em aberto; alternativas Chandy-Lamport e centralizada documentadas para escolha no Build |
 | 2026-08-31 19:08 UTC-03:00 | Accepted | Chandy-Lamport (descentralizado); canais lógicos modelados por origem sobre o grupo multicast único. Variante centralizada descartada |
+| 2026-08-31 19:08 UTC-03:00 | Accepted | Implementado no Build CP4 e validado com 3 e 8 nós reais |
