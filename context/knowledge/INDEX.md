@@ -66,6 +66,13 @@ Adicione uma entry por arquivo em anti-patterns/, seguindo o schema acima. Exemp
 - **Triggers:** criar `threading.Thread`, laço `while True` de longa duração, encerramento de nó, orquestrar múltiplos nós
 - **File:** [`anti-patterns/non-daemon-threads-no-shutdown.md`](anti-patterns/non-daemon-threads-no-shutdown.md)
 
+### `total-order-sort-without-stability`
+- **Status:** estável
+- **Família:** ordenação / corretude
+- **Sintoma em 1 linha:** ordenar a fila por chave total e entregar o topo sem condição de estabilidade (ACK) diverge entre nós.
+- **Triggers:** implementar ordem total, `holdback_queue`, `total_key`, `sort`+`pop(0)`, entrega de mensagem, R4/§5.3
+- **File:** [`anti-patterns/total-order-sort-without-stability.md`](anti-patterns/total-order-sort-without-stability.md)
+
 ## Patterns
 
 <!--

@@ -2,16 +2,24 @@
 
 Project backlog. Tracked items beyond active intents (research debt, follow-ups, future ADRs).
 
-## Requisitos pendentes (do enunciado)
+## Decisões fechadas (2026-08-31)
 
-- [ ] **R3** — Configuração de nós ≥ 15 sem alterar código: criar `nos.json` (catálogo estático) + parametrizar `process_id`/lista de nós na inicialização. Substituir `run.ps1` hardcoded (3 nós) por launcher que gera `nos.json` para 3/8/15 nós.
-- [x] **R4 (parte 5.2)** — Relógio vetorial + buffer de entrega causal (`can_deliver`) implementados por Guilherme (commit `faf894c`).
-- [ ] **R4 (parte 5.3)** — **Ordem total**: fechar [[decisions/0005]] (Abordagem A vs B) e adicionar o critério de ordenação total sobre a entrega causal já existente. ⬅️ próximo foco.
-- [x] **R5 (unicast)** — Envio p/ nó específico via campo `receiver` (0 = grupo) implementado (commit `8046d24`).
-- [ ] **R5 (tela)** — Exibir ordem local e ordem global (fila de delivery ordenada idêntica em todos os nós).
-- [ ] **R6** — Estado global (§5.5): fechar [[decisions/0006]] e implementar snapshot (Chandy-Lamport recomendado) disparável por comando de menu. ⬅️ pendente (Guilherme).
-- [ ] **R7** — Relatório da Entrega 1 (§10): derivar dos artefatos `context/`.
-- [ ] **R8** — (Se Abordagem B em 0005) eleição de líder (Bully ou Anel) + teste de reeleição ao cair o líder.
+- [x] [[decisions/0005]] **Ordem total → Abordagem A** + ACK de estabilidade + hold-back queue (multicast totalmente ordenado do Lamport). B descartada.
+- [x] [[decisions/0006]] **Estado global → Chandy-Lamport** (canais lógicos por origem sobre o grupo multicast).
+
+## Build em andamento — ver [[intent/feature-ordem-total]] (ordem CP1→CP5)
+
+- [ ] **CP1 — Infra (R3 + dívida técnica):** `nos.json` + `node_ids`; vetor com N posições; `message_id`=`origin:seq`; campo `type`; `recvfrom(65536)`; `state_lock`; threads `daemon=True` + shutdown; `except:`→`except Exception`; `run.ps1` parametrizado (`-Nodes`). ⬅️ **próximo**
+- [ ] **CP2 — Ordem total (R4/§5.3):** `holdback_queue`, `total_key`, `ACK` (envio+recepção, emissor conta), `acks`, `try_deliver` (topo + ACK de todos), `delivery_order`, dedup + detecção de lacuna. ⚠️ NÃO entregar por sort sozinho — ver [[knowledge/anti-patterns/total-order-sort-without-stability]].
+- [ ] **CP3 — Tela (R5):** menu; mostrar relógio vetorial, ordem local, ordem global, buffer.
+- [ ] **CP4 — Snapshot (R6/§5.5):** `MARKER`, estado local + canais lógicos, término com MARKER de todos; comando de menu.
+- [ ] **CP5 — Testes:** 3/8/15 nós; cenário concorrente (filas idênticas) + cenário causal.
+- [ ] **R7** — Relatório da Entrega 1 (§10): derivar dos artefatos `context/` + `PROJECT_STATUS.md`.
+
+### Já concluído
+- [x] **R4/§5.2** — Relógio vetorial + entrega causal (`can_deliver`) (commit `faf894c`).
+- [x] **R5 (unicast)** — Envio p/ nó específico via `receiver` (commit `8046d24`).
+- ⚪ **R8** — eleição de líder: **fora de escopo** (Abordagem A não usa líder).
 
 ## Legacy debt (archeology pass — 2026-08-26)
 

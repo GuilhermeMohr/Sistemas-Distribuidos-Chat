@@ -1,9 +1,9 @@
 # ADR-0006 — Estado global: Chandy-Lamport vs variante centralizada
 
 - **Created:** 2026-08-26 22:54 UTC-03:00
-- **Last updated:** 2026-08-26 22:54 UTC-03:00
-- **Status:** Proposed
-- **Decision-makers:** equipe (decisão em aberto — a fechar no Build)
+- **Last updated:** 2026-08-31 19:08 UTC-03:00
+- **Status:** Accepted
+- **Decision-makers:** equipe + revisão técnica externa (GPT) — Confidence 🟢 High
 
 ## Context
 
@@ -11,7 +11,17 @@ R6 exige capturar uma "fotografia" coerente de todos os nós (estado global cons
 
 ## Decision
 
-**EM ABERTO.** A ser decidida durante o Build de R6. Escolher o mecanismo, registrar a justificativa aqui e atualizar o status para Accepted.
+**Escolhido o snapshot de Chandy-Lamport** (descentralizado). NÃO adotar variante centralizada — combina naturalmente com a arquitetura sem líder da [[decisions/0005]] e respeita "somente rede".
+
+Modelagem sobre multicast UDP (ponto crítico):
+
+- **Canais lógicos direcionados sobre um único grupo multicast:** fisicamente todos os nós usam o mesmo grupo `239.0.0.1:50000`, mas o snapshot modela logicamente um canal `j → i` por par de processos. O **canal lógico é identificado pela origem da mensagem** (`message['id']`) — não se cria socket por canal. Registrar isso no relatório como abstração deliberada.
+- **MARKER** é uma mensagem de protocolo (`{"type":"MARKER","snapshot_id":...,"origin":...}`) difundida ao grupo.
+- Ao **iniciar**: o nó registra seu estado local e difunde MARKER.
+- Ao receber o **primeiro** MARKER: registra estado local, marca o canal de origem como vazio, começa a gravar os demais canais e difunde MARKER.
+- Ao receber MARKER **subsequente** de um canal: encerra a gravação daquele canal (estado do canal = mensagens recebidas entre o registro local e a chegada do MARKER daquele canal).
+- **Termina** quando MARKERs de todos os `node_ids` foram recebidos.
+- **Estado capturado por nó:** `vectorial_time`, `delivery_order`, `holdback_queue`, e `channel_state[j]` (mensagens por canal lógico). Simplificação aceita: "estado do canal" = mensagens recebidas após o registro local e antes do MARKER daquele canal.
 
 ## Alternatives considered
 
@@ -33,7 +43,8 @@ O líder/coordenador consulta todos os nós e agrega as respostas.
 
 ### Negative
 
-- Chandy-Lamport aumenta a complexidade; a variante centralizada acopla ao líder (relação com [[decisions/0005]] Abordagem B).
+- Chandy-Lamport aumenta a complexidade (gravação de estado de canais, contagem de MARKERs).
+- Sobre UDP não confiável, perda de um MARKER trava o término do snapshot daquele canal — documentar como limitação (mesma dedup/`message_id` da [[decisions/0005]] ajuda).
 
 ## Outcomes
 
@@ -41,9 +52,9 @@ O líder/coordenador consulta todos os nós e agrega as respostas.
 
 ## Related
 
-- **Intent:** `context/intent/project-intent.md` (R6)
+- **Intent:** `context/intent/project-intent.md` (R6), `context/intent/feature-ordem-total.md`
 - **ADRs:** `context/decisions/0005-ordem-total-abordagem.md`
-- **Patterns:** *nenhum ainda*
+- **Patterns:** *a criar no Learn (chandy-lamport-sobre-multicast)*
 - **Anti-patterns:** *nenhum*
 - **Buglog:** *nenhum*
 
@@ -52,3 +63,4 @@ O líder/coordenador consulta todos os nós e agrega as respostas.
 | Timestamp | Status | Reason |
 |---|---|---|
 | 2026-08-26 22:54 UTC-03:00 | Proposed | Decisão registrada em aberto; alternativas Chandy-Lamport e centralizada documentadas para escolha no Build |
+| 2026-08-31 19:08 UTC-03:00 | Accepted | Chandy-Lamport (descentralizado); canais lógicos modelados por origem sobre o grupo multicast único. Variante centralizada descartada |
