@@ -1,9 +1,9 @@
 # ADR-0004 — Modelo de concorrência com threads (rede / entrega / UI)
 
 - **Created:** 2026-08-26 22:54 UTC-03:00
-- **Last updated:** 2026-08-26 22:54 UTC-03:00
-- **Status:** Provisional
-- **Decision-makers:** equipe (inferido via archeology pass — Confidence 🟡 Medium)
+- **Last updated:** 2026-08-31 19:08 UTC-03:00
+- **Status:** Accepted
+- **Decision-makers:** equipe (inferido via archeology; consolidado no Build CP1)
 
 ## Context
 
@@ -13,7 +13,9 @@ Cada nó precisa, simultaneamente, escutar a rede e permitir que o usuário envi
 
 ## Decision
 
-Adotar **concorrência baseada em `threading`** dentro de cada processo-nó, com threads separadas por responsabilidade. Estado atual: thread de recepção + thread de escrita. Estado alvo (para R4/R6): adicionar camada de entrega ordenada e proteger buffer de delivery + relógio vetorial com locks.
+Adotar **concorrência baseada em `threading`** dentro de cada processo-nó, com threads separadas por responsabilidade.
+
+> **Consolidado no Build (CP1, 2026-08-31):** duas threads — recepção (`receive_loop`, `daemon=True`) e UI/menu (thread principal). Todo o estado compartilhado (`holdback_queue`, `acks`, `vectorial_time`, `delivery_order`, ...) vive na classe `Node` e é protegido por um único `threading.Lock` interno; I/O (`recvfrom`, `sendto`) e `input()`/`print` ficam **fora** do lock. Encerramento gracioso via `threading.Event` (`stop_event`) + `socket.close()`. Isto resolve a dívida de "estado compartilhado sem lock" e "threads não-daemon sem shutdown".
 
 ## Alternatives considered
 
@@ -51,3 +53,4 @@ Adotar **concorrência baseada em `threading`** dentro de cada processo-nó, com
 | Timestamp | Status | Reason |
 |---|---|---|
 | 2026-08-26 22:54 UTC-03:00 | Provisional | Modelo parcialmente implementado (rede+UI); camada de entrega ordenada + locks ainda pendentes |
+| 2026-08-31 19:08 UTC-03:00 | Accepted | Build CP1: `Node` com lock único, threads daemon, shutdown via Event; dívida de concorrência resolvida |
