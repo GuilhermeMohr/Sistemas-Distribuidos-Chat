@@ -51,7 +51,16 @@ Daria ordem total simples, mas exige eleição de líder + tratamento de queda. 
 
 ## Outcomes
 
-**Outcomes recorded:** —
+**Outcomes recorded:** 2026-09-01
+
+Uma **revisão adversarial externa** apontou um suposto P0 de *safety*: recepção fora de ordem contaminaria o `vectorial_time`, e um heartbeat próprio com chave inflada seria usado por outro nó como falsa evidência de progresso → entrega prematura.
+
+**Investigação empírica** (fuzzer `test_fuzz_ordem_total.py`: perda 20–50% + reordenação aleatória, 3–6 nós, centenas de execuções pseudo-aleatórias + o cenário exato do veredito):
+
+- **Safety NÃO viola** (nenhuma divergência de ordem em nenhuma execução). O suposto P0 é **falso-positivo**. **Razão:** a chave de cada stream é **monotônica na seq** — a contaminação infla uniformemente as chaves das mensagens do próprio nó, e `latest_key[o]` (fronteira FIFO) continua honesto (chave menor ⇒ seq menor ⇒ já processada FIFO). Não há como `latest_key[o] > K` sem ter processado FIFO tudo de `o` com chave ≤ K.
+- **Liveness (P1) confirmado:** a recuperação por NACK é de **uma lacuna por rodada**; sob perda severa é **gradual** (o próprio revisor classificou como "não-P0"). Tentou-se NACK de faixa, mas causa **tempestade de reenvios** — revertido; mantém-se NACK unitário (correto e limitado). Recuperação eventual confirmada (dreno suficiente → completude total). **Safety é sempre preservada**, independente da velocidade de recuperação.
+
+Limitação P1 registrada em `context/evolution/todo.md`.
 
 ## Related
 

@@ -8,6 +8,7 @@
 | Sintaxe | CPython | `python -m py_compile multicast.py` | Falha = erro de sintaxe |
 | Corretude ordem total + snapshot + perda | pytest-less | `python test_ordem_total.py` | `TODOS OS TESTES PASSARAM` (concorrente/causal/duplicata/snapshot/retransmissão) |
 | Recuperação de perda (real) | manual | subir N nós com `DROP_PROB=0.3` no ambiente | Ordem global converge idêntica apesar da perda (retransmissão) |
+| Fuzz adversarial (safety) | pytest-less | `python test_fuzz_ordem_total.py` | `TODOS OS TESTES DE FUZZ PASSARAM` — safety de ordem total sob perda+reordenação aleatórias |
 | Smoke multi-nó | manual | `pwsh ./run.ps1 -Nodes 3` (ou N terminais `python multicast.py <id>`) | Mensagem de grupo de um nó aparece nos demais |
 | Escala (R3) | manual | `run.ps1 -Nodes 3|8|15` (gera `nos.json` e sobe N) sem alterar código | Todos ingressam no grupo; **filas de delivery idênticas** (§8) |
 

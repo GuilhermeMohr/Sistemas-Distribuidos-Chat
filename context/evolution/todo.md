@@ -30,6 +30,11 @@ Project backlog. Tracked items beyond active intents (research debt, follow-ups,
 - [x] `recvfrom(1024)` → `recvfrom(65536)`.
 - [x] Não-confiabilidade UDP: dedup + hold-back + **retransmissão por NACK** (perda de DATA e ACK) — [[decisions/0007]] / [[knowledge/patterns/reliable-multicast-nack-retransmission]]. Validado com 30% e 50% de perda. Limites restantes: queda da origem e MARKER perdido no snapshot (documentar §10.6).
 
+## Revisão adversarial (2026-09-01)
+
+- [x] Auditoria externa (GPT) da ordem total → suposto P0 de *safety* investigado com fuzzer (`test_fuzz_ordem_total.py`): **falso-positivo** (nenhuma divergência de ordem em centenas de runs adversariais). Ver [[decisions/0008]] Outcomes.
+- [ ] **P1 (liveness/eficiência):** recuperação por NACK é gradual (1 lacuna/rodada) sob perda severa. Aceitável para o escopo; safety sempre preservada. Melhoria futura possível: NACK de faixa **com controle de tempestade** (a tentativa ingênua causou storm e foi revertida), ou heartbeats fora do stream FIFO carregando fronteira explícita.
+
 ## Infra / Segurança (não-bloqueante)
 
 - [ ] `.gitignore` criado no bootstrap — revisar cobertura Python.
