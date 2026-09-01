@@ -114,6 +114,13 @@ Adicione uma entry por arquivo em patterns/, seguindo o mesmo schema da seção 
 - **Triggers:** implementar estado global, `MARKER`, `start_snapshot`/`on_marker`, canais lógicos, R6/§5.5
 - **File:** [`patterns/chandy-lamport-snapshot-multicast.md`](patterns/chandy-lamport-snapshot-multicast.md)
 
+### `reliable-multicast-nack-retransmission`
+- **Status:** consolidado
+- **Família:** confiabilidade / transporte
+- **Sintoma em 1 linha:** recupera perda UDP (DATA e ACK) via NACK + reenvio de pendentes.
+- **Triggers:** perda de pacote UDP, retransmissão, `NACK`, `retransmit_tick`, `message_store`, §13 do enunciado
+- **File:** [`patterns/reliable-multicast-nack-retransmission.md`](patterns/reliable-multicast-nack-retransmission.md)
+
 ---
 
 ## Cobertura

@@ -48,7 +48,7 @@ Python 3 (stdlib: `socket`, `threading`, `json`, `struct`, `sys`, `time`) + laun
 
 - **Somente rede como canal de coordenação.** Proibido memória/BD/arquivo compartilhado ou serviço externo. Cada nó = processo independente com estado privado. Exceção: `nos.json` estático (catálogo de endereços lido na inicialização).
 - **≥ 15 nós** configuráveis sem alterar código (R3).
-- **UDP não confiável** — perdas/duplicação/reordenação devem ser tratadas na camada de ordenação (números de sequência por origem, detecção de lacunas). Limitação documentada no relatório.
+- **UDP não confiável** — duplicação (dedup), reordenação (hold-back) e **perda (retransmissão por NACK, [[decisions/0007]])** tratadas. Limites restantes: queda da origem e MARKER perdido (documentar no relatório).
 - **Prazos:** Entrega 1 (código + relatório) **09/09/2026** · Entrega 2 (slides + seminário) **16/09/2026**.
 - **Equipe:** até 4 alunos; relatório descreve o papel de cada membro.
 - **Escopo avaliado:** middleware de comunicação/ordenação/estado global — não a riqueza da app. Interface de terminal é suficiente.

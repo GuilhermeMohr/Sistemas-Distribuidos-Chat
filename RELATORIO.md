@@ -170,7 +170,7 @@ nó3: global=[1:1, 2:1]   local=[2:1, 1:1]   ← viu 2 antes de 1
 
 ## 6. Limitações do modelo escolhido
 
-- **UDP não confiável:** multicast pode perder, duplicar ou reordenar datagramas. A solução trata **duplicação** (deduplicação por `message_id`) e **reordenação** (hold-back queue + FIFO por origem), mas **não implementa recuperação/retransmissão de mensagens perdidas** — isto está fora do escopo. Consequência: um `DATA`, `ACK` ou `MARKER` perdido estagna a entrega/snapshot daquela origem/canal.
+- **UDP não confiável:** multicast pode perder, duplicar ou reordenar datagramas. A solução trata **duplicação** (deduplicação por `message_id`), **reordenação** (hold-back queue + FIFO por origem) e **perda** (retransmissão por NACK — ver seção 8.6). Limites restantes: se a **origem cai** antes de retransmitir uma mensagem que nenhum outro nó possui, ela se perde; a perda de um **MARKER** de snapshot não é recuperada. Validação: o sistema converge para a mesma ordem global mesmo com **30% e 50%** de perda de pacotes injetada.
 - **Custo de controle da Abordagem A:** o ACK de estabilidade gera O(N²) mensagens de controle por difusão no grupo. É aceitável para 15 nós, mas aumenta a latência de entrega (uma mensagem só é entregue após o ACK de todos).
 - **Ambiente:** os testes foram feitos em `localhost` (vários processos na mesma máquina). Multicast entre máquinas distintas depende de a rede/roteador permitirem tráfego multicast.
 - **Segurança:** o tráfego multicast não é cifrado nem autenticado — limitação inerente ao escopo do trabalho.
@@ -276,6 +276,16 @@ Ordem total alcançada. *(Este resultado foi reproduzido em teste real com 3 e 1
 ### 8.5 Eleição de líder
 
 Não se aplica: a Abordagem A é totalmente descentralizada e não usa sequenciador. Portanto não há eleição de líder (R8 é opcional nesse caso).
+
+### 8.6 Confiabilidade sobre UDP (tratamento de perdas)
+
+Como o transporte é multicast UDP, a camada de ordenação trata os três problemas do UDP:
+
+- **Duplicação:** cada mensagem tem `message_id = origem:seq`; datagramas repetidos são ignorados (deduplicação).
+- **Reordenação:** a hold-back queue + FIFO por origem já garantem a ordem correta mesmo com chegada fora de ordem.
+- **Perda:** retransmissão sob demanda por **NACK**. Uma thread periódica (a cada 1 s) verifica o que está pendente e difunde: (a) o próprio `DATA` ainda não entregue (recupera a perda do envio original, inclusive da 1ª mensagem, cuja ausência não gera lacuna no destino); (b) um `NACK` quando a entrega está travada no topo da fila — por lacuna (falta a mensagem anterior da origem) ou por falta de `ACK`. Ao receber um `NACK`, a **origem** reenvia o `DATA` e qualquer nó que já conheça a mensagem reenvia o seu `ACK` — assim um único mecanismo recupera perda de `DATA` **e** de `ACK`. O processo é idempotente e limitado ao que está pendente, convergindo e parando quando tudo é entregue.
+
+Este mecanismo foi validado injetando perda artificial de pacotes: com **30%** e mesmo **50%** de perda, os três nós convergiram para a mesma ordem global.
 
 ---
 

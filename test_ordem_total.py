@@ -117,9 +117,58 @@ def teste_snapshot():
     assert all(o == ("1:1",) for o in ordens), f"estado inconsistente: {ordens}"
 
 
+def teste_retransmissao_data_perdida():
+    """DATA perdida gera lacuna; NACK recupera via retransmissão da origem."""
+    nodes = novo_sistema()
+    m1 = nodes["1"].on_send("m1", 0)   # 1:1
+    m2 = nodes["1"].on_send("m2", 0)   # 1:2
+    acks = []
+    entrega_data(nodes["2"], m2, acks)         # nó2 recebe só m2 (m1 perdida)
+    entrega_data(nodes["3"], m1, acks)
+    entrega_data(nodes["3"], m2, acks)
+    assert nodes["2"].delivery_order == [], "não deveria entregar com lacuna"
+
+    ticks = nodes["2"].retransmit_tick()
+    assert any(t["type"] == "NACK" and t["message_id"] == "1:1" for t in ticks), ticks
+
+    resp = nodes["1"].on_nack({"type": "NACK", "id": "2", "message_id": "1:1"})
+    data_resp = [r for r in resp if r["type"] == "DATA"]
+    assert data_resp and data_resp[0]["message_id"] == "1:1", resp
+
+    entrega_data(nodes["2"], data_resp[0], acks)   # nó2 recebe o DATA reenviado
+    propaga_acks(nodes, acks)
+    assert nodes["2"].delivery_order == ["1:1", "1:2"], nodes["2"].delivery_order
+
+
+def teste_retransmissao_ack_perdido():
+    """ACK perdido trava a entrega; NACK recupera pedindo o ACK de novo."""
+    nodes = novo_sistema()
+    mA = nodes["1"].on_send("A", 0)    # 1:1
+    ack2 = nodes["2"].on_data(mA)[0]
+    ack3 = nodes["3"].on_data(mA)[0]
+    # Distribuição com PERDA do ACK de nó2 para nó3:
+    nodes["1"].on_ack(ack2); nodes["1"].on_ack(ack3)   # nó1 recebe ambos
+    nodes["2"].on_ack(ack3)                             # nó2 recebe o de nó3
+    # nó3 não recebe nada (ACK de nó2 perdido; nó1 é origem e não dá ACK)
+    assert nodes["1"].delivery_order == ["1:1"]
+    assert nodes["2"].delivery_order == ["1:1"]
+    assert nodes["3"].delivery_order == [], "nó3 deveria estar travado"
+
+    ticks = nodes["3"].retransmit_tick()
+    assert any(t["type"] == "NACK" and t["message_id"] == "1:1" for t in ticks), ticks
+
+    resp = nodes["2"].on_nack({"type": "NACK", "id": "3", "message_id": "1:1"})
+    acks_resp = [r for r in resp if r["type"] == "ACK"]
+    assert acks_resp, resp
+    nodes["3"].on_ack(acks_resp[0])
+    assert nodes["3"].delivery_order == ["1:1"], nodes["3"].delivery_order
+
+
 if __name__ == "__main__":
     teste_concorrente()
     teste_causal()
     teste_duplicata()
     teste_snapshot()
+    teste_retransmissao_data_perdida()
+    teste_retransmissao_ack_perdido()
     print("TODOS OS TESTES PASSARAM")
