@@ -23,33 +23,30 @@ Recupera de **perdas** de datagramas UDP sem timers por-mensagem nem números de
 
 ```python
 def on_nack(self, message):          # resposta a um pedido de re-sincronização
-    mid = message["message_id"]; out = []
+    mid = message["message_id"]
     if mid.split(":")[0] == self.process_id and mid in self.message_store:
-        out.append(self.message_store[mid])            # sou a origem: reenvio DATA
-    if mid in self.received_ids:
-        out.append({"type": "ACK", "id": self.process_id, "message_id": mid})
-    return out                                          # reenvio meu ACK
+        return [self.message_store[mid]]   # sou a origem: reenvio DATA/HEARTBEAT
+    return []
 
 def retransmit_tick(self):           # chamada a cada ~1s por uma thread daemon
-    out = []
-    for m in self.holdback_queue:
+    out = [self._build("HEARTBEAT")]         # liveness (avança meu progresso)
+    self._register_own(out[0], is_data=False)
+    for o in self.node_ids:                  # NACK das lacunas por origem
+        if o != self.process_id and self.reorder_buf[o]:
+            out.append({"type":"NACK","id":self.process_id,
+                        "message_id": f"{o}:{self.next_expected[o]}"})
+    for m in self.holdback:                   # reenvia meu DATA pendente
         if m["id"] == self.process_id:
-            out.append(m)                               # reenvia meu DATA pendente
-    if self.holdback_queue:
-        top = min(self.holdback_queue, key=self.total_key)
-        origin = top["id"]; prox = self.delivered_seq[origin] + 1
-        if top["vectorial_time"][origin] > prox:
-            out.append({"type":"NACK","id":self.process_id,"message_id":f"{origin}:{prox}"})
-        elif len(self.acks.get(top["message_id"], set())) < len(self.node_ids):
-            out.append({"type":"NACK","id":self.process_id,"message_id":top["message_id"]})
+            out.append(m)
     return out
 ```
 
 Pontos-chave:
 
-- Reenviar o **próprio DATA pendente** cobre o caso da 1ª mensagem perdida (o destino não tem lacuna para NACKear).
-- NACK do **topo** cobre falta de ACK; NACK da **lacuna** cobre DATA faltante.
-- Idempotente e limitado ao `holdback` → converge e para quando tudo é entregue.
+- **Sem ACKs** (removidos na correção da ordem total, [[decisions/0008]]): o fluxo FIFO por origem (DATA/HEARTBEAT) + NACK cobre perda de DATA e a liveness.
+- NACK da **lacuna** (`reorder_buf` não vazio) pede a mensagem faltante à origem.
+- Reenviar o **próprio DATA pendente** cobre a 1ª mensagem perdida (destino sem lacuna para NACKear).
+- Idempotente e limitado ao pendente → converge e para quando tudo é entregue.
 - Testar injetando perda (`DROP_PROB` no `receive_loop`).
 
 ## Trade-offs

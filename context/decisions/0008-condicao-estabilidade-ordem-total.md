@@ -1,0 +1,68 @@
+# ADR-0008 — Condição de estabilidade correta da ordem total (heard-larger-from-all + heartbeats)
+
+- **Created:** 2026-09-01 01:56 UTC-03:00
+- **Last updated:** 2026-09-01 01:56 UTC-03:00
+- **Status:** Accepted
+- **Decision-makers:** equipe + revisão técnica externa — Confidence 🟢 High
+
+## Context
+
+A [[decisions/0005]] escolheu a Abordagem A (ordem total via relógio vetorial + chave total + estabilidade). A **implementação inicial** usou como condição de estabilidade *"todos os nós deram ACK na mensagem m"*. Um teste com 50% de perda (`orchestrate_loss.py`) revelou **divergência da ordem de entrega** (bug L2, ver buglog 2026-09-01): um nó entregava `2:1` antes de `1:1` em ~1/3 das execuções.
+
+**Causa raiz:** "todos ACKaram m" **não** garante que nenhuma mensagem com chave **menor** ainda pode chegar. O ACK de `m` só diz que o remetente viu `m`; não diz que o receptor já recebeu todas as mensagens menores. Sob perda/reordenação, um nó estabilizava `2:1` e o entregava antes de `1:1` chegar.
+
+## Decision
+
+Adotar a **condição de estabilidade canônica** da Abordagem A (multicast totalmente ordenado do Lamport):
+
+> Entrega-se a mensagem `m` (a de **menor** chave no holdback) somente quando, de **todo** nó `o ≠ origem(m)`, já se **processou em ordem FIFO** uma mensagem (DATA ou HEARTBEAT) com **chave > chave(m)**. Isso garante que nenhuma mensagem menor pode mais chegar (nem em trânsito, nem futura).
+
+Peças que tornam isso correto sobre UDP:
+
+1. **`latest_key[o]`** = maior chave já processada **em ordem contígua** de cada nó `o`. Só avança via processamento FIFO.
+2. **FIFO por origem** (`next_expected` + `reorder_buf` + dedup + NACK): uma mensagem fora de ordem é **bufferizada** e **não** avança `latest_key` até a lacuna ser preenchida. Isto fecha o buraco do UDP não-FIFO — um batimento posterior não "fura" a ordem.
+3. **HEARTBEAT** periódico: cada nó difunde batimentos (que avançam seu próprio progresso), para que nós silenciosos não travem a fila. Ao receber um DATA, o nó também emite um batimento imediato (convergência rápida).
+4. **ACKs removidos:** o papel de "algo posterior de todos" passa a ser cumprido por DATA/HEARTBEAT no fluxo FIFO. Um único mecanismo (fluxo FIFO + batimento) substitui os ACKs.
+
+Esta ADR **corrige a condição de entrega** de [[decisions/0005]] (a escolha A permanece) e ajusta [[decisions/0007]] (confiabilidade agora sem ACKs).
+
+## Alternatives considered
+
+### Alternativa A — heard-larger-from-all + heartbeats + FIFO (escolhida)
+Condição canônica e correta. **Pró:** ordem total de fato correta (validada sob perda). **Contra:** latência de entrega ligada ao intervalo de batimento; mais tráfego de batimentos.
+
+### Alternativa B — manter "todos ACKaram m"
+**Contra:** incorreta (o bug). Rejeitada.
+
+### Alternativa C — sequenciador/líder (Abordagem B)
+Daria ordem total simples, mas exige eleição de líder + tratamento de queda. Rejeitada por já termos a infra descentralizada; ver [[decisions/0005]].
+
+## Consequences
+
+### Positive
+
+- Ordem total **correta** sob perda/reordenação (50% de perda: 8/8 convergem; 30%: 3/3).
+- Remove ACKs; modelo mais simples e alinhado ao algoritmo clássico.
+
+### Negative
+
+- Latência de entrega ≈ intervalo de batimento (1 s) no pior caso; mitigada pelo batimento imediato ao receber DATA.
+- Batimentos periódicos incrementam o relógio/seq continuamente (crescimento do contador e do `message_store`) — aceitável no escopo; documentado como limitação.
+
+## Outcomes
+
+**Outcomes recorded:** —
+
+## Related
+
+- **Intent:** `context/intent/feature-ordem-total.md` (R4)
+- **ADRs:** `context/decisions/0005-ordem-total-abordagem.md` (corrigida), `context/decisions/0007-confiabilidade-udp-nack.md` (ajustada)
+- **Patterns:** `context/knowledge/patterns/totally-ordered-multicast-ack-holdback.md`, `context/knowledge/patterns/reliable-multicast-nack-retransmission.md`
+- **Anti-patterns:** `context/knowledge/anti-patterns/total-order-sort-without-stability.md`
+- **Buglog:** `context/evolution/buglog.md#2026-09-01`
+
+## Status history
+
+| Timestamp | Status | Reason |
+|---|---|---|
+| 2026-09-01 01:56 UTC-03:00 | Accepted | Corrige a condição de estabilidade da ordem total; validado sob perda (50%/30%) |

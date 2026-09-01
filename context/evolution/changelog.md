@@ -4,6 +4,9 @@ All notable changes are documented here. Follows milestones only (L3 policy).
 
 ## [Unreleased]
 
+### Fixed
+- **2026-09-01** — **Bug de ordem total sob perda/reordenação** (issue #5, ADR-0008): a condição de estabilidade *"todos ACKaram m"* permitia entregar `2:1` antes de `1:1` (divergência em ~1/3 das execuções a 50% de perda). Corrigida para a condição canônica *"de todo nó ≠ origem, processei em ordem FIFO algo com chave > m"* + **heartbeats** (liveness) + **FIFO por origem** (fecha o UDP não-FIFO). **ACKs removidos**. Validado: 50% perda 8/8 e 30% 3/3 convergem; `teste_sem_entrega_prematura` cobre a regressão. Buglog 2026-09-01.
+
 ### Added
 - **2026-08-26** — Brainiac Context adotado no projeto (via `/brainiac-context-existing`). Estrutura `context/` criada por inferência retroativa (archeology pass) sobre o código existente: 4 ADRs Accepted (multicast, Python stdlib, envelope JSON, threading), 2 ADRs Proposed (ordem total, estado global), 2 patterns, 2 anti-patterns, intent com requisitos R1–R8, code/security standards e harness de agents (Core + Extended).
 

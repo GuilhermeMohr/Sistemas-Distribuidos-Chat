@@ -26,7 +26,7 @@ Sistema de comunicação de grupo com **15+ nós** implementando: (1) comunicaç
 | **R1** | Comunicação de grupo (multicast) | ✅ Feito — multicast UDP `239.0.0.1:50000` |
 | **R2** | Tema chat distribuído | ✅ Feito |
 | **R3** | Nº de nós configurável ≥ 15 | ✅ Feito — `nos.json` + `run.ps1 -Nodes`; validado 3 e 15 nós |
-| **R4** | Ordem total (relógio vetorial + melhorias) | ✅ Feito — chave total + ACK de estabilidade + hold-back queue |
+| **R4** | Ordem total (relógio vetorial + melhorias) | ✅ Feito — chave total + hold-back + estabilidade "ouvi-maior-de-todos" + heartbeats (corrigido, ADR-0008) |
 | **R5** | Tela do nó (unicast, grupo, ordem local, ordem global) | ✅ Feito — menu |
 | **R6** | Estado global | ✅ Feito — snapshot Chandy-Lamport |
 | **R7** | Relatório detalhado | ❌ **Falta** ⬅️ (é o próximo passo) |
@@ -42,24 +42,24 @@ Validação: `test_ordem_total.py` (concorrente/causal/duplicata/snapshot) + tes
 
 ```
 recvfrom(65536) -> parse JSON -> dispatch por 'type'
-    DATA   -> Node.on_data()  -> holdback_queue -> try_deliver()
-    ACK    -> Node.on_ack()   -> acks           -> try_deliver()
-    NACK   -> Node.on_nack()  -> retransmite DATA/ACK pedido
-    MARKER -> Node.on_marker() -> snapshot Chandy-Lamport
+    DATA      -> Node.on_stream() -> FIFO por origem -> holdback -> try_deliver()
+    HEARTBEAT -> Node.on_stream() -> avança latest_key -> try_deliver()
+    NACK      -> Node.on_nack()   -> origem retransmite a mensagem pedida
+    MARKER    -> Node.on_marker() -> snapshot Chandy-Lamport
 ```
-Uma thread de retransmissão (~1s) reenvia DATA/ACK pendentes e emite NACK do que falta, recuperando perdas UDP (ver seção 8).
+Uma thread de retransmissão (~1s) difunde batimentos (liveness), NACKs de lacunas e o próprio DATA pendente, recuperando perdas UDP (ver seção 8).
 
 - **1 processo = 1 nó.** Identidade via `sys.argv[1]`; membros lidos de `nos.json`.
 - **Concorrência:** 2 threads (recepção `daemon` + UI). Todo estado compartilhado no `Node`, protegido por um `threading.Lock` único; I/O e `print` fora do lock. Shutdown via `threading.Event` + `socket.close()`.
-- **Envelope:** `type` (DATA|ACK|MARKER), `id` (origem), `message_id="origin:seq"` (`seq=V[origin]`), `message`, `receiver` (0=grupo), `vectorial_time`.
+- **Envelope:** `type` (DATA|HEARTBEAT|NACK|MARKER), `id` (origem), `message_id="origin:seq"` (`seq=V[origin]`), `message`/`receiver` (DATA), `vectorial_time` (DATA/HEARTBEAT).
 
 ---
 
 ## 4. Ordem total (R4/§5.3) — como funciona
 
-O relógio vetorial garante **ordem causal** (parcial). Para **ordem total** usa-se uma **chave determinística** + **estabilidade por ACK** sobre uma hold-back queue (multicast totalmente ordenado do Lamport). ⚠️ Ordenar por chave e entregar o topo **não basta** — é preciso a condição de estabilidade.
+O relógio vetorial garante **ordem causal** (parcial). Para **ordem total** usa-se uma **chave determinística** + **condição de estabilidade correta** sobre uma hold-back queue. ⚠️ Nem "ordenar e entregar o topo" nem "todos ACKaram m" bastam (este último foi um bug real — ver ADR-0008/seção 8). A condição correta: entregar `m` (menor chave) só quando, de **todo** nó ≠ origem, já se processou **em ordem FIFO** algo com **chave > m**; batimentos dão liveness.
 
-**Convenção do relógio vetorial:** envio incrementa a própria posição; entrega faz `max` componente a componente (recepção não incrementa) — assim `V[origem]` é exatamente a sequência da origem.
+**Convenção do relógio vetorial:** envio incrementa a própria posição; entrega/recepção faz `max` componente a componente — assim `V[origem]` é a sequência da origem.
 
 ```python
 @staticmethod
@@ -69,29 +69,26 @@ def total_key(message):
 
 def _try_deliver(self):                 # com o lock
     delivered = []
-    while self.holdback_queue:
-        self.holdback_queue.sort(key=self.total_key)
-        m = self.holdback_queue[0]
-        mid, origin = m["message_id"], m["id"]
-        seq = m["vectorial_time"][origin]
-        if len(self.acks.get(mid, set())) < len(self.node_ids):
-            break                       # estabilidade: falta ACK de alguém
-        if seq != self.delivered_seq[origin] + 1:
-            break                       # FIFO por origem (sem lacuna)
-        self.holdback_queue.pop(0); self.delivered_seq[origin] = seq
-        self.delivery_order.append(mid); delivered.append(m)
+    while self.holdback:
+        m = min(self.holdback, key=self.total_key)
+        k = self.total_key(m); origin = m["id"]
+        # estabilidade: de TODO nó != origem, já processei (FIFO) algo com chave > k
+        if not all(self.latest_key[o] > k for o in self.node_ids if o != origin):
+            break
+        self.holdback.remove(m)
+        self.delivery_order.append(m["message_id"]); delivered.append(m)
     return delivered
 ```
 
-- Cada `DATA` recebida gera um `ACK` multicast; o emissor conta como ACK; a origem é adicionada por todos ao ver o `DATA`.
-- Entrega quando: (a) topo por `total_key` **e** (b) `len(acks[mid]) == len(node_ids)` **e** (c) FIFO por origem.
+- `latest_key[o]` avança **só** via processamento **FIFO por origem** (`next_expected`+`reorder_buf`+dedup+NACK); fora de ordem vai ao buffer e não avança nada (fecha o UDP não-FIFO).
+- **Heartbeats** periódicos + batimento imediato ao receber DATA dão liveness/convergência.
 
-### Exemplo numérico (para o relatório §10.8) ⬅️
+### Exemplo numérico (para o relatório §10.8)
 
 3 nós, estado inicial `[0,0,0]`. `N1` envia `M1` → `V=[1,0,0]`; `N2` envia `M2` → `V=[0,1,0]` (concorrentes).
 
 - `total_key(M1) = (1, 1, 1)`  ·  `total_key(M2) = (1, 2, 1)` → `M1 < M2` (empate na soma; desempate por origem).
-- Mesmo que a rede entregue `M2` antes de `M1` em alguns nós (ordem **local** difere), após os ACKs tornarem ambas estáveis, **todos** entregam `[M1, M2]` (ordem **global** idêntica). Confirmado em teste real com 3 e 15 nós.
+- Mesmo que a rede entregue `M2` antes de `M1` em alguns nós (ordem **local** difere), quando cada nó já ouviu de todos (via DATA/batimento em ordem FIFO) algo com chave maior, **todos** entregam `[M1, M2]`. Confirmado em teste real com 3–15 nós e sob 30%/50% de perda.
 
 ---
 
@@ -137,14 +134,15 @@ Teste de corretude: `python test_ordem_total.py`.
 
 - **ADR-0001** Multicast UDP · **ADR-0002** Python stdlib · **ADR-0003** Envelope JSON.
 - **ADR-0004** Concorrência: `Lock` único + threads daemon + shutdown.
-- **ADR-0005** Ordem total = **Abordagem A** (relógio vetorial + chave total + ACK de estabilidade + hold-back). Sem líder.
+- **ADR-0005** Ordem total = **Abordagem A** (relógio vetorial + chave total + hold-back). Sem líder.
+- **ADR-0008** Condição de estabilidade corrigida: "ouvi-maior-de-todos" em FIFO + heartbeats (substitui a estabilidade por ACK, que tinha bug).
 - **ADR-0006** Estado global = **Chandy-Lamport** (canais lógicos por origem).
 
-- **ADR-0007** Confiabilidade sobre UDP: retransmissão por NACK (recupera perda de DATA e ACK).
+- **ADR-0007** Confiabilidade sobre UDP: retransmissão por NACK + reenvio de pendentes (recupera perda de DATA/HEARTBEAT).
 
 **Limitações (documentar no relatório §10.6):**
 - UDP não confiável: dedup + hold-back + **retransmissão por NACK** recuperam duplicação, reordenação e **perda** (validado com 30% e 50% de perda). Limites restantes: **queda da origem** antes de retransmitir, e **MARKER de snapshot perdido**, não são recuperados.
-- ACK de estabilidade custa O(N²) mensagens por difusão (aceitável para 15 nós; maior latência); NACKs adicionam tráfego sob perda.
+- Batimentos custam O(N²) mensagens por difusão (aceitável para 15 nós; latência ≈ intervalo); crescem o contador/`message_store`. NACKs adicionam tráfego sob perda.
 - Tráfego multicast não é cifrado/autenticado (inerente ao trabalho).
 
 ---
@@ -166,6 +164,6 @@ Teste de corretude: `python test_ordem_total.py`.
 ## 10. Onde preciso de ajuda do GPT ⬅️
 
 1. **Redigir o relatório (R7)** conforme a seção 9, expandindo o passo a passo da ordem total (seção 4) e do snapshot (seção 5) com linguagem acadêmica.
-2. **Diagrama de arquitetura** (fluxo DATA → ACK → entrega; MARKER → snapshot) descrito em texto/ASCII para colar no relatório.
+2. **Diagrama de arquitetura** (fluxo DATA/HEARTBEAT → estabilidade → entrega; MARKER → snapshot) descrito em texto/ASCII para colar no relatório.
 3. **Slides do seminário** (Entrega 2, 16/09) — roteiro a partir deste documento.
 4. Revisão crítica das **limitações** (seção 8) — algo a acrescentar sobre corretude/robustez?

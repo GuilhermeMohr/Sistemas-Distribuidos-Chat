@@ -22,7 +22,9 @@ Mecanismo (correção conceitual sobre a chave sugerida no enunciado):
 3. **ACK de estabilidade:** cada `DATA` recebida gera um `ACK` (multicast ao grupo). Cada nó mantém `acks[message_id] = {ids que confirmaram}` (o próprio emissor conta como ACK). **Condição de entrega:** a mensagem só é entregue quando (a) está no **topo** da hold-back queue por `total_key` **e** (b) **todos os nós conhecidos** (`node_ids`) deram ACK para ela. Isso resolve o problema do "silêncio" sem heartbeat mágico: se todos confirmaram M, todos já a conhecem.
 4. **Confiabilidade mínima sobre UDP:** cada mensagem tem `message_id = "origin:seq"` (`seq = Vm[origin]`); deduplicação via `received_ids`; detecção de lacuna (segurar `1:3` se `1:1`/`1:2` não chegaram). Recuperação/retransmissão de perdas está **fora de escopo** e será documentada como limitação.
 
-> **Correção importante (revisão GPT, 2026-08-31):** `holdback_queue.sort(key=total_key)` e entregar o primeiro **NÃO basta** — sem a condição de estabilidade (ACK de todos), um nó pode entregar uma mensagem antes de outra menor ainda em trânsito. A estabilidade via ACK é o que garante a ordem total. Ver anti-pattern `total-order-sort-without-stability`.
+> **Correção importante (revisão GPT, 2026-08-31):** `holdback_queue.sort(key=total_key)` e entregar o primeiro **NÃO basta** — sem condição de estabilidade, um nó pode entregar uma mensagem antes de outra menor ainda em trânsito. Ver anti-pattern `total-order-sort-without-stability`.
+
+> **⚠️ Correção da condição de estabilidade ([[decisions/0008]], 2026-09-01):** a primeira implementação usou *"todos ACKaram m"* como estabilidade — isso **também é insuficiente** e causou divergência sob perda (bug L2, buglog 2026-09-01). A condição correta é: entregar `m` só quando, de **todo** nó ≠ origem, já se processou **em ordem FIFO** algo com **chave > m** (+ heartbeats para liveness + FIFO por origem). Os ACKs foram removidos. A escolha da **Abordagem A permanece**; apenas a condição de entrega foi corrigida em ADR-0008.
 
 > **Estado do código (commit `faf894c`):** hoje há relógio vetorial + `buffer` + `can_deliver` (ordem **causal** apenas). A entrega causal deixa de ser o mecanismo final; passa a hold-back queue + ACK. Dado o tamanho da mudança, o Build reescreve `multicast.py` separando protocolo / ordenação / snapshot / UI.
 
@@ -71,3 +73,4 @@ Um nó atua como sequenciador: recebe as mensagens de grupo e atribui/difunde um
 |---|---|---|
 | 2026-08-26 22:54 UTC-03:00 | Proposed | Decisão central registrada em aberto; alternativas A e B documentadas para escolha no Build |
 | 2026-08-31 19:08 UTC-03:00 | Accepted | Abordagem A + ACK de estabilidade + hold-back queue (multicast totalmente ordenado do Lamport); B descartada (evita eleição/ponto único). Revisão técnica externa incorporada |
+| 2026-09-01 01:56 UTC-03:00 | Accepted | Escolha A mantida; condição de estabilidade corrigida em [[decisions/0008]] (ACK→heard-larger-from-all + heartbeats + FIFO) após bug sob perda |

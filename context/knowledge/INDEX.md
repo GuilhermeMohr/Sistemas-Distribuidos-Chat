@@ -103,8 +103,8 @@ Adicione uma entry por arquivo em patterns/, seguindo o mesmo schema da seção 
 ### `totally-ordered-multicast-ack-holdback`
 - **Status:** consolidado
 - **Família:** ordenação / relógios lógicos
-- **Sintoma em 1 linha:** chave total + ACK de estabilidade + hold-back queue garantem ordem total sem líder.
-- **Triggers:** implementar ordem total, `total_key`, `acks`, `try_deliver`, estabilidade, R4/§5.3
+- **Sintoma em 1 linha:** chave total + hold-back + estabilidade "ouvi-maior-de-todos" (FIFO + heartbeats) garantem ordem total sem líder. (ACKs removidos — ver ADR-0008.)
+- **Triggers:** implementar ordem total, `total_key`, `latest_key`, `try_deliver`, estabilidade, heartbeat, R4/§5.3
 - **File:** [`patterns/totally-ordered-multicast-ack-holdback.md`](patterns/totally-ordered-multicast-ack-holdback.md)
 
 ### `chandy-lamport-snapshot-multicast`
