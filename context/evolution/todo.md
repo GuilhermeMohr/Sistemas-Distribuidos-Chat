@@ -14,7 +14,7 @@ Project backlog. Tracked items beyond active intents (research debt, follow-ups,
 - [x] **CP3 — Tela (R5):** menu com envio unicast/grupo, relógio vetorial, ordem local, ordem global. (PR #1)
 - [x] **CP4 — Snapshot (R6/§5.5):** `MARKER`, estado local + canais lógicos por origem, término com MARKER de todos; menu 6 (iniciar) e 7 (mostrar). Validado com 3 e 8 nós reais. (PR #2)
 - [x] **CP5 — Testes:** `test_ordem_total.py` (concorrente/causal/duplicata/**snapshot**) + orquestradores reais 3/8/15 nós.
-- [ ] **R7** — Relatório da Entrega 1 (§10): derivar dos artefatos `context/` + `PROJECT_STATUS.md`. ⬅️ **próximo**
+- [~] **R7** — Relatório da Entrega 1 (§10): **rascunho gerado** em `RELATORIO.md` (e `~/Downloads`). Falta a equipe: (a) confirmar nomes/papéis §10.2; (b) inserir prints das filas de delivery; (c) revisão final antes de submeter no AVA (09/09).
 
 ### Já concluído
 - [x] **R4/§5.2** — Relógio vetorial + entrega causal (`can_deliver`) (commit `faf894c`).
