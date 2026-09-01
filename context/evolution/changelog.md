@@ -4,6 +4,9 @@ All notable changes are documented here. Follows milestones only (L3 policy).
 
 ## [Unreleased]
 
+### Added
+- **2026-09-01** — **Fuzzer adversarial de ordem total** (`test_fuzz_ordem_total.py`): perda 20–50% + reordenação aleatórias em 3–6 nós, verifica *safety* (nenhuma divergência de ordem) e *liveness* (completude). Inclui o cenário do veredito adversarial. Motivado por uma revisão externa que apontou um suposto P0 de safety — investigado e **refutado empiricamente** (falso-positivo; ver [[decisions/0008]] Outcomes). Confirmado o P1 de liveness (recuperação gradual sob perda severa; safety sempre preservada).
+
 ### Fixed
 - **2026-09-01** — **Bug de ordem total sob perda/reordenação** (issue #5, ADR-0008): a condição de estabilidade *"todos ACKaram m"* permitia entregar `2:1` antes de `1:1` (divergência em ~1/3 das execuções a 50% de perda). Corrigida para a condição canônica *"de todo nó ≠ origem, processei em ordem FIFO algo com chave > m"* + **heartbeats** (liveness) + **FIFO por origem** (fecha o UDP não-FIFO). **ACKs removidos**. Validado: 50% perda 8/8 e 30% 3/3 convergem; `teste_sem_entrega_prematura` cobre a regressão. Buglog 2026-09-01.
 

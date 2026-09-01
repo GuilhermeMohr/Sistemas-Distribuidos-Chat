@@ -195,7 +195,9 @@ class Node:
             hb = self._build("HEARTBEAT")
             self._register_own(hb, is_data=False)
             out.append(hb)
-            # NACK das lacunas por origem (algo fora de ordem à espera)
+            # NACK da lacuna por origem (a próxima seq faltante). Um por rodada
+            # evita tempestade de reenvios; a recuperação é gradual sob perda
+            # severa (limitação P1 documentada — a corretude/safety é preservada).
             for o in self.node_ids:
                 if o != self.process_id and self.reorder_buf[o]:
                     out.append({"type": "NACK", "id": self.process_id,
