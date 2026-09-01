@@ -48,8 +48,12 @@ class Node:
         # FIFO por origem: próxima seq esperada + buffer de reordenação.
         self.next_expected = {n: 1 for n in self.node_ids}
         self.reorder_buf = {n: {} for n in self.node_ids}
-        # Maior chave já processada EM ORDEM de cada nó (progresso conhecido).
-        self.latest_key = {n: (0, 0, 0) for n in self.node_ids}
+        # Fronteira FIFO: chave da ÚLTIMA mensagem de cada origem processada pela
+        # sequência FIFO CONTÍGUA. Invariante (base da corretude da ordem total):
+        # fifo_frontier[o] > K  ==>  todas as mensagens de o com chave <= K já
+        # foram processadas em ordem. Só avança dentro do while do drain FIFO —
+        # nunca por vetor causal, mensagem fora de ordem ou heartbeat próprio.
+        self.fifo_frontier = {n: (0, 0, 0) for n in self.node_ids}
 
         self.holdback = []            # DATA recebidos em ordem, aguardando entrega
         self.received_ids = set()     # dedup (DATA e HEARTBEAT)
@@ -90,7 +94,7 @@ class Node:
         mid = msg["message_id"]
         self.received_ids.add(mid)
         self.message_store[mid] = msg
-        self.latest_key[self.process_id] = self.total_key(msg)
+        self.fifo_frontier[self.process_id] = self.total_key(msg)
         self.next_expected[self.process_id] = msg["vectorial_time"][self.process_id] + 1
         if is_data:
             self.holdback.append(msg)
@@ -142,7 +146,7 @@ class Node:
             self.reorder_buf[origin][seq] = message
             while self.next_expected[origin] in self.reorder_buf[origin]:
                 sm = self.reorder_buf[origin].pop(self.next_expected[origin])
-                self.latest_key[origin] = self.total_key(sm)
+                self.fifo_frontier[origin] = self.total_key(sm)
                 if sm["type"] == "DATA":
                     self.holdback.append(sm)
                     self.local_order.append(sm["message_id"])
@@ -166,7 +170,7 @@ class Node:
             m = min(self.holdback, key=self.total_key)
             k = self.total_key(m)
             origin = m["id"]
-            estavel = all(self.latest_key[o] > k
+            estavel = all(self.fifo_frontier[o] > k
                           for o in self.node_ids if o != origin)
             if not estavel:
                 break

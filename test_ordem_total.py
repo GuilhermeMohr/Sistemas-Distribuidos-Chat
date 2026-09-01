@@ -96,7 +96,7 @@ def teste_sem_entrega_prematura():
     hb3 = nodes["3"].make_heartbeat()  # 3:1
     nodes["2"].on_stream(hb1)          # seq2 de nó1 sem o seq1 -> vai p/ buffer
     nodes["2"].on_stream(hb3)
-    # nó2 NÃO pode ter entregue nada: latest_key[1] ainda é 0 (m1 em falta)
+    # nó2 NÃO pode ter entregue nada: fifo_frontier[1] ainda é 0 (m1 em falta)
     assert nodes["2"].delivery_order == [], \
         f"entrega prematura! {nodes['2'].delivery_order}"
     # NACK deve pedir 1:1
