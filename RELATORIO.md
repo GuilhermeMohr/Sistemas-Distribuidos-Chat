@@ -26,7 +26,7 @@ O foco do trabalho — e desta solução — é o **middleware de comunicação 
 | Integrante | Contribuição principal |
 |---|---|
 | **Guilherme Mohr** | Camada de rede inicial (socket multicast UDP, ingresso no grupo), envio de mensagem de grupo e unicast (`receiver`), primeira versão do relógio vetorial e entrega causal. |
-| **Arthur Hawreliuk** | Reestruturação para **ordem total** (chave total + ACK de estabilidade + hold-back queue), **estado global** (snapshot de Chandy-Lamport), infraestrutura de nós (`nos.json` + launcher configurável), testes automatizados e documentação técnica. |
+| **Arthur Hawreliuk** | Reestruturação para **ordem total** (chave total + hold-back + condição de estabilidade "ouvi-maior-de-todos" + batimentos), **estado global** (snapshot de Chandy-Lamport), confiabilidade sobre UDP, infraestrutura de nós (`nos.json` + launcher), testes automatizados e documentação técnica. |
 | *(integrante 3)* | *a definir* |
 | *(integrante 4)* | *a definir* |
 
@@ -51,14 +51,14 @@ Cada nó é um processo Python que executa `multicast.py`. O código separa quat
   └───────────┘      │   parse JSON → dispatch por 'type'         │
         ▲            │        │                                   │
         │            │   ┌────┴─────┬───────────┐                 │
-        └────sendto──┼── DATA      ACK        MARKER              │
+        └──sendto──┼─ DATA  HEARTBEAT  NACK  MARKER               │
                      │    │         │            │                │
                      │    ▼         ▼            ▼                │
                      │  ┌──────────────────┐  ┌──────────────┐    │
                      │  │  classe Node      │  │  snapshot     │   │
                      │  │  (state_lock)     │  │ Chandy-Lamport│   │
-                     │  │  holdback_queue   │  └──────────────┘    │
-                     │  │  acks             │                      │
+                     │  │  holdback         │  └──────────────┘    │
+                     │  │  latest_key       │                      │
                      │  │  vectorial_time   │                      │
                      │  │  delivery_order   │                      │
                      │  └──────────────────┘                      │
@@ -76,15 +76,15 @@ Cada nó é um processo Python que executa `multicast.py`. O código separa quat
 
 ```
 Nó A envia DATA ──multicast──► todos os nós
-                                   │
-                          cada nó: on_data()
-                                   │  guarda na holdback_queue
-                                   │  envia ACK ──multicast──► todos
+                                   │  processa em ordem FIFO por origem
+                                   │  (dedup; fora de ordem → buffer + NACK)
                                    ▼
-                          cada nó: on_ack() acumula acks[msg]
-                                   │
-                          try_deliver(): entrega quando a mensagem é o
-                          TOPO por total_key E todos os nós deram ACK
+                          guarda na hold-back queue; atualiza latest_key[A]
+                                   │  (e emite um HEARTBEAT imediato)
+        HEARTBEAT/DATA de cada nó ─┤  avançam latest_key[nó]
+                                   ▼
+   try_deliver(): entrega m (menor chave) quando, de TODO nó != origem,
+   já processou (FIFO) algo com chave > m
                                    ▼
                           delivery_order (idêntica em todos os nós)
 ```
@@ -93,12 +93,12 @@ Nó A envia DATA ──multicast──► todos os nós
 
 | Campo | Descrição |
 |---|---|
-| `type` | `DATA`, `ACK` ou `MARKER` |
+| `type` | `DATA`, `HEARTBEAT`, `NACK` ou `MARKER` |
 | `id` | identificador do nó de origem |
 | `message_id` | `"origem:seq"` (seq = componente da origem no vetor) |
 | `message` | conteúdo (apenas em `DATA`) |
-| `receiver` | `0` = grupo; caso contrário, id do destino (unicast) |
-| `vectorial_time` | relógio vetorial no momento do envio (apenas em `DATA`) |
+| `receiver` | `0` = grupo; caso contrário, id do destino (unicast) — apenas em `DATA` |
+| `vectorial_time` | relógio vetorial no momento do envio (`DATA`/`HEARTBEAT`) |
 
 ---
 
@@ -144,15 +144,18 @@ Foram executados testes automatizados (sem rede, validando a lógica) e testes p
 | Concorrente | 2 mensagens concorrentes chegando em ordens diferentes por nó | ✅ ordem global idêntica |
 | Causal | mensagem B enviada após entrega de A | ✅ A precede B em todos |
 | Duplicata | mesma `DATA` recebida 2× (UDP duplica) | ✅ entregue 1× |
+| Sem entrega prematura | batimento posterior fora de ordem não pode liberar entrega antes da mensagem menor | ✅ segura até recuperar (regressão do bug) |
+| Retransmissão | `DATA` perdida recuperada por NACK | ✅ entregue após retransmissão |
 | Snapshot | Chandy-Lamport com 3 nós | ✅ todos concluem, estado consistente |
 
 ### 5.2 Testes ponta-a-ponta (multicast real)
 
 | Nº de nós | Cenário | Resultado |
 |---|---|---|
-| 3 | 2 mensagens de grupo concorrentes | ✅ ordem global `[1:1, 2:1]` idêntica nos 3 |
-| 15 | 2 mensagens de grupo concorrentes | ✅ ordem global idêntica nos 15 |
+| 2, 3, 8, 15 | mensagens de grupo concorrentes | ✅ ordem global idêntica em todos os nós |
 | 8 | snapshot global disparado por um nó | ✅ 8/8 concluem com estado consistente |
+| 3 | **30% de perda** de pacotes injetada | ✅ converge (3/3 execuções) |
+| 3 | **50% de perda** de pacotes injetada | ✅ converge (8/8 execuções) |
 
 ### 5.3 Evidência da ordem total (critério de corretude §8)
 
@@ -171,7 +174,7 @@ nó3: global=[1:1, 2:1]   local=[2:1, 1:1]   ← viu 2 antes de 1
 ## 6. Limitações do modelo escolhido
 
 - **UDP não confiável:** multicast pode perder, duplicar ou reordenar datagramas. A solução trata **duplicação** (deduplicação por `message_id`), **reordenação** (hold-back queue + FIFO por origem) e **perda** (retransmissão por NACK — ver seção 8.6). Limites restantes: se a **origem cai** antes de retransmitir uma mensagem que nenhum outro nó possui, ela se perde; a perda de um **MARKER** de snapshot não é recuperada. Validação: o sistema converge para a mesma ordem global mesmo com **30% e 50%** de perda de pacotes injetada.
-- **Custo de controle da Abordagem A:** o ACK de estabilidade gera O(N²) mensagens de controle por difusão no grupo. É aceitável para 15 nós, mas aumenta a latência de entrega (uma mensagem só é entregue após o ACK de todos).
+- **Custo de controle da Abordagem A:** os batimentos (heartbeats) geram O(N²) mensagens de controle no grupo. É aceitável para 15 nós, mas aumenta a latência de entrega (uma mensagem só é entregue após ouvir "algo posterior" de todos os nós). Batimentos periódicos também incrementam continuamente o relógio/`seq` (crescimento do contador/`message_store`).
 - **Ambiente:** os testes foram feitos em `localhost` (vários processos na mesma máquina). Multicast entre máquinas distintas depende de a rede/roteador permitirem tráfego multicast.
 - **Segurança:** o tráfego multicast não é cifrado nem autenticado — limitação inerente ao escopo do trabalho.
 
@@ -208,7 +211,7 @@ nó3: global=[1:1, 2:1]   local=[2:1, 1:1]   ← viu 2 antes de 1
 
 ## 8. Passo a passo do algoritmo de ordem total (com exemplo numérico)
 
-A equipe adotou a **Abordagem A** do enunciado: **relógio vetorial + critério de ordenação total determinístico + confirmação de estabilidade (ACK)** sobre uma fila de espera (hold-back queue). **Não** há sequenciador nem eleição de líder.
+A equipe adotou a **Abordagem A** do enunciado: **relógio vetorial + critério de ordenação total determinístico + condição de estabilidade** sobre uma fila de espera (hold-back queue), com **batimentos (heartbeats)** para liveness. **Não** há sequenciador nem eleição de líder.
 
 ### 8.1 Relógio vetorial
 
@@ -229,15 +232,19 @@ total_key(m) = ( soma(Vm),  id_da_origem,  Vm[origem] )
 - `soma(Vm)` é um escalar derivado do vetor (cada envio incrementa exatamente uma posição). Não é um relógio de Lamport perfeito, mas serve como primeiro critério.
 - O desempate por **id da origem** e depois pela **sequência da origem** transforma a ordem parcial (causal) em **ordem total**.
 
-### 8.3 Condição de entrega (estabilidade por ACK)
+### 8.3 Condição de entrega (estabilidade correta)
 
-Ordenar pela chave **não basta**: sob rede assíncrona, uma mensagem de chave menor pode ainda estar em trânsito. A entrega usa a técnica do **multicast totalmente ordenado de Lamport**:
+Ordenar pela chave **não basta**: sob rede assíncrona, uma mensagem de chave menor pode ainda estar em trânsito. **Também não basta** exigir "todos confirmaram m" — isso não garante que nada menor ainda chegará (foi um bug real que corrigimos; ver seção 6 e o buglog). A condição **correta** da Abordagem A é:
 
-1. Ao receber uma `DATA`, o nó a coloca na hold-back queue e **difunde um `ACK`** para o grupo.
-2. Cada nó acumula, por mensagem, o conjunto de nós que a confirmaram (o próprio emissor conta como confirmação).
-3. Uma mensagem `m` só é **entregue** quando: (a) é o **topo** da fila por `total_key`, **e** (b) **todos os nós conhecidos** confirmaram `m`, **e** (c) respeita o FIFO da origem (sem lacuna).
+> A mensagem `m` (a de **menor** chave na hold-back queue) é entregue quando, de **todo** nó `o ≠ origem(m)`, o nó já **processou em ordem FIFO** alguma mensagem (DATA ou HEARTBEAT) com **chave > chave(m)**.
 
-Como todos os nós usam a mesma chave e só entregam mensagens estáveis (confirmadas por todos), a sequência de entrega — a `delivery_order` — é **idêntica em todos os nós**.
+Isso garante que nenhuma mensagem menor pode mais chegar de nenhum outro nó. Três peças tornam isso robusto sobre UDP:
+
+1. **`latest_key[o]`** = maior chave já processada **em ordem contígua** de cada nó `o`. Só avança pelo processamento FIFO.
+2. **FIFO por origem** (`next_expected` + `reorder_buf` + deduplicação + NACK): uma mensagem fora de ordem é **bufferizada** e **não** avança `latest_key` até a lacuna ser preenchida — assim um batimento posterior não "fura" a ordem sobre o UDP, que não é FIFO.
+3. **Batimentos (HEARTBEAT)** periódicos: cada nó difunde batimentos que avançam o seu próprio progresso, para que nós silenciosos não travem a fila. Ao receber uma `DATA`, o nó também emite um batimento imediato (convergência rápida).
+
+Como todos os nós usam a mesma chave e a mesma condição, a sequência de entrega — a `delivery_order` — é **idêntica em todos os nós**.
 
 ### 8.4 Exemplo numérico
 
@@ -263,7 +270,7 @@ Nó 2 recebe:  M2, M1
 Nó 3 recebe:  M2, M1
 ```
 
-após os `ACK`s tornarem `M1` e `M2` **estáveis** (confirmadas por todos), os três nós entregam na mesma ordem:
+quando cada nó já ouviu de todos os outros (via DATA/batimento em ordem FIFO) algo com chave maior — tornando `M1` e `M2` **estáveis** — os três nós entregam na mesma ordem:
 
 ```
 Nó 1 → [M1, M2]
@@ -283,9 +290,9 @@ Como o transporte é multicast UDP, a camada de ordenação trata os três probl
 
 - **Duplicação:** cada mensagem tem `message_id = origem:seq`; datagramas repetidos são ignorados (deduplicação).
 - **Reordenação:** a hold-back queue + FIFO por origem já garantem a ordem correta mesmo com chegada fora de ordem.
-- **Perda:** retransmissão sob demanda por **NACK**. Uma thread periódica (a cada 1 s) verifica o que está pendente e difunde: (a) o próprio `DATA` ainda não entregue (recupera a perda do envio original, inclusive da 1ª mensagem, cuja ausência não gera lacuna no destino); (b) um `NACK` quando a entrega está travada no topo da fila — por lacuna (falta a mensagem anterior da origem) ou por falta de `ACK`. Ao receber um `NACK`, a **origem** reenvia o `DATA` e qualquer nó que já conheça a mensagem reenvia o seu `ACK` — assim um único mecanismo recupera perda de `DATA` **e** de `ACK`. O processo é idempotente e limitado ao que está pendente, convergindo e parando quando tudo é entregue.
+- **Perda:** retransmissão sob demanda por **NACK**. Uma thread periódica (a cada 1 s) difunde: (a) um **HEARTBEAT** (liveness, que também avança `latest_key`); (b) um `NACK` para cada **lacuna** por origem (mensagem fora de ordem à espera no buffer); (c) o próprio `DATA` ainda não entregue (recupera a perda do 1º envio, cuja ausência não gera lacuna no destino). Ao receber um `NACK`, a **origem** reenvia a mensagem de fluxo pedida (DATA/HEARTBEAT). O processo é idempotente e limitado ao pendente, convergindo e parando quando tudo é entregue.
 
-Este mecanismo foi validado injetando perda artificial de pacotes: com **30%** e mesmo **50%** de perda, os três nós convergiram para a mesma ordem global.
+Este mecanismo foi validado injetando perda artificial de pacotes: com **30%** (3/3 execuções) e mesmo **50%** (8/8 execuções), todos os nós convergiram para a mesma ordem global — inclusive após a correção do bug de estabilidade descrito na seção 6.
 
 ---
 

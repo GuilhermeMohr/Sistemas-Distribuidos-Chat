@@ -10,7 +10,7 @@ Project backlog. Tracked items beyond active intents (research debt, follow-ups,
 ## Build em andamento — ver [[intent/feature-ordem-total]] (ordem CP1→CP5)
 
 - [x] **CP1 — Infra (R3 + dívida técnica):** `nos.json` + `node_ids`; vetor com N posições; `message_id`=`origin:seq`; campo `type`; `recvfrom(65536)`; `state_lock` + `SO_REUSEPORT`; threads `daemon=True` + shutdown (`Event`); `except Exception`; `run.ps1 -Nodes`. (PR #1)
-- [x] **CP2 — Ordem total (R4/§5.3):** `holdback_queue`, `total_key`, `ACK`, `acks`, `try_deliver` (topo + ACK de todos + FIFO por origem), `delivery_order`, dedup. Validado: 3 e 15 nós reais + teste `test_ordem_total.py`. (PR #1)
+- [x] **CP2 — Ordem total (R4/§5.3):** `total_key` + hold-back + condição de estabilidade **corrigida** (ADR-0008: "ouvi-maior-de-todos" em FIFO + heartbeats; ACKs removidos). Validado com 3/8/15 nós e perda 30%/50%. (PR #1, corrigido em issue #5)
 - [x] **CP3 — Tela (R5):** menu com envio unicast/grupo, relógio vetorial, ordem local, ordem global. (PR #1)
 - [x] **CP4 — Snapshot (R6/§5.5):** `MARKER`, estado local + canais lógicos por origem, término com MARKER de todos; menu 6 (iniciar) e 7 (mostrar). Validado com 3 e 8 nós reais. (PR #2)
 - [x] **CP5 — Testes:** `test_ordem_total.py` (concorrente/causal/duplicata/**snapshot**) + orquestradores reais 3/8/15 nós.

@@ -3,24 +3,20 @@
 Trabalho 1 de Sistemas Distribuídos (UNIVALI). Cada nó é um processo
 independente que se comunica apenas por mensagens de rede (multicast UDP).
 
-Arquitetura (separação protocolo / ordenação / snapshot / UI):
-    recvfrom -> parse JSON -> dispatch por 'type'
-        DATA   -> Node.on_data()  -> holdback_queue -> try_deliver()
-        ACK    -> Node.on_ack()   -> acks           -> try_deliver()
-        NACK   -> Node.on_nack()  -> retransmite o DATA pedido
-        MARKER -> Node.on_marker() -> snapshot Chandy-Lamport
+Ordem total (Abordagem A — ADR-0005/ADR-0008): relógio vetorial para
+causalidade + chave total determinística + condição de estabilidade correta:
+uma mensagem m só é entregue quando, de **todos** os outros nós, já se recebeu
+(em ordem FIFO por origem) algo com chave **maior** que m — garantindo que
+nenhuma mensagem menor ainda pode chegar. Batimentos (HEARTBEAT) periódicos
+garantem que nós silenciosos não travem a fila. O processamento FIFO por
+origem (com dedup + NACK) evita que um batimento "fure" a ordem sobre o UDP,
+que não é FIFO.
 
-Ordem total (Abordagem A — ADR-0005): relógio vetorial para causalidade +
-chave total determinística + ACK de estabilidade sobre uma hold-back queue.
-Uma mensagem só é entregue quando é o TOPO da fila (por total_key) E todos
-os nós conhecidos confirmaram (ACK). Isso — e não um simples sort — é o que
-garante que todos os nós entreguem na MESMA ordem (ver anti-pattern
-total-order-sort-without-stability).
+Tipos de mensagem: DATA (aplicação), HEARTBEAT (liveness), NACK (retransmissão),
+MARKER (snapshot Chandy-Lamport).
 
-Confiabilidade sobre UDP: dedup por message_id + hold-back (reordenação) +
-retransmissão sob demanda (NACK) e reenvio periódico de DATA/ACK pendentes
-(cobre perda de DATA e de ACK). Recuperação converge e para quando tudo é
-entregue.
+Confiabilidade sobre UDP: dedup por message_id + reordenação FIFO por origem +
+retransmissão sob demanda (NACK, origem reenvia) + reenvio periódico. Converge.
 """
 
 import socket
@@ -32,42 +28,37 @@ import os
 import random
 
 CONFIG_PATH = "nos.json"
-RECV_BUFFER = 65536  # vetor de 15+ posições + payload não cabe em 1024
-RETRANSMIT_INTERVAL = 1.0  # segundos entre ciclos de retransmissão
-# Injeção de perda para TESTE (0.0 = desligado): descarta datagramas recebidos.
-DROP_PROB = float(os.environ.get("DROP_PROB", "0"))
+RECV_BUFFER = 65536
+RETRANSMIT_INTERVAL = 1.0  # batimento + retransmissão periódicos
+DROP_PROB = float(os.environ.get("DROP_PROB", "0"))  # injeção de perda p/ teste
 
 
 # ---------------------------------------------------------------------------
-# Núcleo de ordenação (testável, sem rede)
+# Núcleo de ordenação total (testável, sem rede)
 # ---------------------------------------------------------------------------
 
 class Node:
-    """Estado e lógica de ordem total de um nó. Thread-safe.
-
-    Convenção do relógio vetorial (documentada no relatório):
-    - Evento de ENVIO incrementa apenas a própria posição.
-    - Evento de ENTREGA faz max componente a componente (recepção NÃO
-      incrementa) — assim ``V[origem]`` é exatamente a sequência da origem.
-    """
+    """Estado e lógica de ordem total de um nó. Thread-safe (um lock)."""
 
     def __init__(self, process_id, node_ids):
         self.process_id = str(process_id)
         self.node_ids = [str(n) for n in node_ids]
 
         self.vectorial_time = {n: 0 for n in self.node_ids}
-        self.holdback_queue = []          # mensagens DATA aguardando entrega
-        self.received_ids = set()         # dedup de DATA (message_id)
-        self.acks = {}                    # message_id -> set(ids que confirmaram)
+        # FIFO por origem: próxima seq esperada + buffer de reordenação.
+        self.next_expected = {n: 1 for n in self.node_ids}
+        self.reorder_buf = {n: {} for n in self.node_ids}
+        # Maior chave já processada EM ORDEM de cada nó (progresso conhecido).
+        self.latest_key = {n: (0, 0, 0) for n in self.node_ids}
+
+        self.holdback = []            # DATA recebidos em ordem, aguardando entrega
+        self.received_ids = set()     # dedup (DATA e HEARTBEAT)
         self.delivered_ids = set()
-        self.delivery_order = []          # ordem GLOBAL (idêntica em todos os nós)
-        self.local_order = []             # ordem LOCAL (ordem de eventos deste nó)
-        self.delivered_seq = {n: 0 for n in self.node_ids}  # FIFO por origem
+        self.delivery_order = []      # ordem GLOBAL (idêntica em todos os nós)
+        self.local_order = []         # ordem LOCAL (ordem de eventos deste nó)
+        self.message_store = {}       # message_id -> envelope (p/ retransmissão)
 
-        # Confiabilidade sobre UDP: cache para retransmissão sob demanda (NACK).
-        self.message_store = {}           # message_id -> envelope DATA (para reenvio)
-
-        # Snapshot Chandy-Lamport (R6): um registro por snapshot_id.
+        # Snapshot Chandy-Lamport (R6).
         self.snapshots = {}
         self.last_snapshot = None
         self._snap_counter = 0
@@ -78,181 +69,157 @@ class Node:
 
     @staticmethod
     def total_key(message):
-        """(escalar derivado do vetor, id numérico da origem, seq da origem).
+        """(escalar derivado do vetor, id da origem, seq da origem).
 
-        O escalar é a soma dos componentes do vetor no envio — NÃO um relógio
-        de Lamport perfeito, mas suficiente porque cada envio incrementa
-        exatamente uma posição. O desempate determinístico (origem, seq)
-        transforma a ordem parcial (causal) em ordem total.
+        Chave determinística idêntica em todos os nós. O escalar (soma do vetor)
+        é monotônico (cada envio incrementa uma posição); o desempate por origem
+        e seq torna a ordem parcial (causal) em ordem total.
         """
-        vector = message["vectorial_time"]
+        v = message["vectorial_time"]
         origin = message["id"]
-        return (sum(vector.values()), int(origin), vector[origin])
+        return (sum(v.values()), int(origin), v[origin])
+
+    # -- helpers internos (assumem lock) -------------------------------------
+
+    def _next_seq(self):
+        self.vectorial_time[self.process_id] += 1
+        return self.vectorial_time[self.process_id]
+
+    def _register_own(self, msg, is_data):
+        """Registra uma mensagem própria como já processada em ordem."""
+        mid = msg["message_id"]
+        self.received_ids.add(mid)
+        self.message_store[mid] = msg
+        self.latest_key[self.process_id] = self.total_key(msg)
+        self.next_expected[self.process_id] = msg["vectorial_time"][self.process_id] + 1
+        if is_data:
+            self.holdback.append(msg)
+            self.local_order.append(mid)
+
+    def _build(self, mtype, text=None, receiver=0):
+        seq = self._next_seq()
+        mid = f"{self.process_id}:{seq}"
+        msg = {"type": mtype, "id": self.process_id, "message_id": mid,
+               "vectorial_time": dict(self.vectorial_time)}
+        if mtype == "DATA":
+            msg["message"] = text
+            msg["receiver"] = receiver
+        return msg
 
     # -- envio ----------------------------------------------------------------
 
     def on_send(self, text, receiver=0):
         """Prepara uma mensagem DATA própria. Retorna o envelope a difundir."""
         with self._lock:
-            self.vectorial_time[self.process_id] += 1
-            seq = self.vectorial_time[self.process_id]
-            message_id = f"{self.process_id}:{seq}"
-            message = {
-                "type": "DATA",
-                "id": self.process_id,
-                "message_id": message_id,
-                "message": text,
-                "receiver": receiver,
-                "vectorial_time": dict(self.vectorial_time),
-            }
-            # A própria origem já "recebeu" e "confirma" a mensagem.
-            self.received_ids.add(message_id)
-            self.acks.setdefault(message_id, set()).add(self.process_id)
-            self.holdback_queue.append(message)
-            self.local_order.append(message_id)
-            self.message_store[message_id] = message  # para retransmissão
-        return message
+            msg = self._build("DATA", text=text, receiver=receiver)
+            self._register_own(msg, is_data=True)
+        return msg
 
-    # -- recepção -------------------------------------------------------------
+    def make_heartbeat(self):
+        """Cria um HEARTBEAT (liveness). Retorna o envelope a difundir."""
+        with self._lock:
+            msg = self._build("HEARTBEAT")
+            self._register_own(msg, is_data=False)
+        return msg
 
-    def on_data(self, message):
-        """Processa DATA recebida. Retorna (ack_a_enviar, entregues)."""
-        message_id = message["message_id"]
+    # -- recepção de mensagens de fluxo (DATA / HEARTBEAT) -------------------
+
+    def on_stream(self, message):
+        """Processa DATA/HEARTBEAT recebido, respeitando FIFO por origem.
+        Retorna a lista de mensagens entregues."""
         origin = message["id"]
+        mid = message["message_id"]
+        seq = message["vectorial_time"][origin]
         with self._lock:
-            if message_id in self.received_ids:
-                return None, []          # duplicata (UDP pode duplicar)
-            self.received_ids.add(message_id)
-            self.message_store[message_id] = message  # para retransmissão
-            self.holdback_queue.append(message)
-            self.local_order.append(message_id)
-            # A origem conhece a própria mensagem; nós também.
-            acked = self.acks.setdefault(message_id, set())
-            acked.add(origin)
-            acked.add(self.process_id)
-            # Chandy-Lamport: grava a mensagem no estado do canal lógico da
-            # origem, para snapshots que já registraram estado local e ainda
-            # estão gravando esse canal.
-            for snap in self.snapshots.values():
-                if not snap["done"] and origin in snap["recording"]:
-                    snap["channel_state"][origin].append(message_id)
-            delivered = self._try_deliver()
-        ack = {"type": "ACK", "id": self.process_id, "message_id": message_id}
-        return ack, delivered
-
-    def on_ack(self, message):
-        """Processa ACK recebido. Retorna lista de mensagens entregues."""
-        message_id = message["message_id"]
-        with self._lock:
-            self.acks.setdefault(message_id, set()).add(message["id"])
+            if mid in self.received_ids:
+                return []                        # duplicata
+            self.received_ids.add(mid)
+            self.message_store[mid] = message
+            # causalidade: incorpora o vetor recebido
+            for k, v in message["vectorial_time"].items():
+                self.vectorial_time[k] = max(self.vectorial_time.get(k, 0), v)
+            # enfileira e processa em ordem contígua a partir da origem
+            self.reorder_buf[origin][seq] = message
+            while self.next_expected[origin] in self.reorder_buf[origin]:
+                sm = self.reorder_buf[origin].pop(self.next_expected[origin])
+                self.latest_key[origin] = self.total_key(sm)
+                if sm["type"] == "DATA":
+                    self.holdback.append(sm)
+                    self.local_order.append(sm["message_id"])
+                    for snap in self.snapshots.values():   # Chandy-Lamport
+                        if not snap["done"] and origin in snap["recording"]:
+                            snap["channel_state"][origin].append(sm["message_id"])
+                self.next_expected[origin] += 1
             return self._try_deliver()
-
-    # -- confiabilidade sobre UDP (retransmissão) ----------------------------
-
-    def on_nack(self, message):
-        """Processa um NACK (pedido de re-sincronização de uma mensagem).
-        Retorna a lista de mensagens a difundir em resposta:
-        - se sou a origem e tenho o DATA em cache → reenvio o DATA;
-        - se já recebi/conheço a mensagem → reenvio o meu ACK.
-        Assim um único NACK recupera tanto DATA perdida quanto ACK perdido."""
-        message_id = message["message_id"]
-        resends = []
-        with self._lock:
-            if (message_id.split(":")[0] == self.process_id
-                    and message_id in self.message_store):
-                resends.append(self.message_store[message_id])
-            if message_id in self.received_ids:
-                resends.append({"type": "ACK", "id": self.process_id,
-                                "message_id": message_id})
-        return resends
-
-    def retransmit_tick(self):
-        """Chamada periódica pela thread de retransmissão. Retorna a lista de
-        mensagens a difundir para recuperar de perdas UDP (converge e para
-        quando tudo é entregue):
-
-        - Meu próprio DATA ainda não entregue → reenvia o DATA (cobre a perda
-          do envio original, inclusive a 1ª mensagem, cuja ausência não gera
-          lacuna detectável no destino).
-        - Se a entrega está travada no topo da fila:
-          * por lacuna (falta a mensagem anterior da origem) → NACK pedindo a
-            mensagem que falta;
-          * por falta de ACK (tenho a mensagem, mas nem todos confirmaram) →
-            NACK do próprio topo, para que quem já a conhece reenvie DATA/ACK.
-        """
-        out = []
-        with self._lock:
-            for m in self.holdback_queue:
-                if m["id"] == self.process_id:
-                    out.append(m)                       # reenvia meu DATA
-            if self.holdback_queue:
-                top = min(self.holdback_queue, key=self.total_key)
-                origin = top["id"]
-                seq = top["vectorial_time"][origin]
-                prox = self.delivered_seq[origin] + 1
-                if seq > prox:                          # lacuna
-                    out.append({"type": "NACK", "id": self.process_id,
-                                "message_id": f"{origin}:{prox}"})
-                elif len(self.acks.get(top["message_id"], set())) < len(self.node_ids):
-                    out.append({"type": "NACK", "id": self.process_id,
-                                "message_id": top["message_id"]})
-        return out
 
     # -- entrega (coração da ordem total) ------------------------------------
 
     def _try_deliver(self):
-        """Entrega todas as mensagens estáveis do topo. Chamar com o lock."""
+        """Entrega as mensagens estáveis. Chamar com o lock.
+
+        m (a de menor chave no holdback) é entregue quando, de TODO nó o != origem,
+        já se processou em ordem uma mensagem com chave > chave(m). Isso garante
+        que nenhuma mensagem menor ainda pode chegar (nem em trânsito, nem futura).
+        """
         delivered = []
-        while self.holdback_queue:
-            self.holdback_queue.sort(key=self.total_key)
-            message = self.holdback_queue[0]
-            message_id = message["message_id"]
-            origin = message["id"]
-            seq = message["vectorial_time"][origin]
-
-            # (1) estabilidade: todos os nós conhecidos confirmaram?
-            if len(self.acks.get(message_id, set())) < len(self.node_ids):
+        while self.holdback:
+            m = min(self.holdback, key=self.total_key)
+            k = self.total_key(m)
+            origin = m["id"]
+            estavel = all(self.latest_key[o] > k
+                          for o in self.node_ids if o != origin)
+            if not estavel:
                 break
-            # (2) FIFO por origem: sem lacuna (mensagem anterior da origem
-            #     já entregue). Sob perda UDP, a lacuna é recuperada por NACK
-            #     (ver retransmit_tick / on_nack) — a espera é temporária.
-            if seq != self.delivered_seq[origin] + 1:
-                break
-
-            self.holdback_queue.pop(0)
-            self.delivered_ids.add(message_id)
-            self.delivered_seq[origin] = seq
-            self.delivery_order.append(message_id)
-
-            # Atualiza o relógio vetorial na entrega (max componente a componente).
-            for k, v in message["vectorial_time"].items():
-                if k in self.vectorial_time:
-                    self.vectorial_time[k] = max(self.vectorial_time[k], v)
-                else:
-                    self.vectorial_time[k] = v
-
-            delivered.append(message)
+            self.holdback.remove(m)
+            self.delivered_ids.add(m["message_id"])
+            self.delivery_order.append(m["message_id"])
+            delivered.append(m)
         return delivered
+
+    # -- confiabilidade sobre UDP (retransmissão) ----------------------------
+
+    def on_nack(self, message):
+        """Responde a um NACK: se sou a origem e tenho a mensagem, reenvio-a."""
+        mid = message["message_id"]
+        with self._lock:
+            if mid.split(":")[0] == self.process_id and mid in self.message_store:
+                return [self.message_store[mid]]
+            return []
+
+    def retransmit_tick(self):
+        """Chamada periódica: batimento (liveness) + NACK de lacunas + reenvio
+        do próprio DATA ainda não entregue. Converge e para quando tudo entrega."""
+        with self._lock:
+            out = []
+            # batimento: avança meu progresso para os demais entregarem
+            hb = self._build("HEARTBEAT")
+            self._register_own(hb, is_data=False)
+            out.append(hb)
+            # NACK das lacunas por origem (algo fora de ordem à espera)
+            for o in self.node_ids:
+                if o != self.process_id and self.reorder_buf[o]:
+                    out.append({"type": "NACK", "id": self.process_id,
+                                "message_id": f"{o}:{self.next_expected[o]}"})
+            # reenvia meu DATA ainda não entregue (cobre perda do envio original)
+            for m in self.holdback:
+                if m["id"] == self.process_id:
+                    out.append(m)
+            return out
 
     # -- snapshot Chandy-Lamport (R6) ----------------------------------------
 
     def _record_local(self, snapshot_id, initiator):
-        """Registra o estado local e começa a gravar todos os canais de entrada.
-
-        Chamar com o lock. Canal lógico de entrada = cada outro nó (a mensagem
-        carrega sua origem, então o canal é identificado por ``message['id']``).
-        """
         outros = [n for n in self.node_ids if n != self.process_id]
         self.snapshots[snapshot_id] = {
             "initiator": initiator,
             "local_state": {
                 "vectorial_time": dict(self.vectorial_time),
                 "delivery_order": list(self.delivery_order),
-                "holdback": [m["message_id"] for m in self.holdback_queue],
+                "holdback": [m["message_id"] for m in self.holdback],
             },
-            "recording": set(outros),          # canais em gravação
+            "recording": set(outros),
             "channel_state": {n: [] for n in outros},
-            "markers_from": set(),             # de quem já recebi MARKER
+            "markers_from": set(),
             "done": False,
         }
 
@@ -263,35 +230,31 @@ class Node:
             self.last_snapshot = snap
 
     def start_snapshot(self):
-        """Inicia um snapshot (este nó é o iniciador). Retorna o MARKER a difundir."""
+        """Inicia um snapshot (este nó é o iniciador). Retorna o MARKER."""
         with self._lock:
             self._snap_counter += 1
             snapshot_id = f"{self.process_id}-{self._snap_counter}"
             self._record_local(snapshot_id, self.process_id)
-            self._check_done(self.snapshots[snapshot_id])  # caso N==1
+            self._check_done(self.snapshots[snapshot_id])
         return {"type": "MARKER", "id": self.process_id,
                 "snapshot_id": snapshot_id, "initiator": self.process_id}
 
     def on_marker(self, message):
-        """Processa um MARKER. Retorna (marker_a_difundir_ou_None, snapshot_done)."""
+        """Processa um MARKER. Retorna (marker_a_difundir_ou_None, done)."""
         sender = message["id"]
         snapshot_id = message["snapshot_id"]
         initiator = message["initiator"]
         forward = None
         with self._lock:
-            first = snapshot_id not in self.snapshots
-            if first:
-                # Primeiro MARKER: registra estado local; o canal de origem
-                # deste MARKER fica vazio (nada o precedeu). Propaga o MARKER.
+            if snapshot_id not in self.snapshots:
                 self._record_local(snapshot_id, initiator)
                 snap = self.snapshots[snapshot_id]
-                snap["recording"].discard(sender)
+                snap["recording"].discard(sender)   # canal de origem vazio
                 forward = {"type": "MARKER", "id": self.process_id,
                            "snapshot_id": snapshot_id, "initiator": initiator}
             else:
                 snap = self.snapshots[snapshot_id]
-                # MARKER subsequente: encerra a gravação do canal daquele nó.
-                snap["recording"].discard(sender)
+                snap["recording"].discard(sender)   # encerra gravação do canal
             snap["markers_from"].add(sender)
             self._check_done(snap)
             done = snap["done"]
@@ -311,7 +274,7 @@ class Node:
                 "vectorial_time": dict(self.vectorial_time),
                 "local_order": list(self.local_order),
                 "delivery_order": list(self.delivery_order),
-                "holdback": [m["message_id"] for m in self.holdback_queue],
+                "holdback": [m["message_id"] for m in self.holdback],
             }
 
 
@@ -327,8 +290,6 @@ def load_config(path=CONFIG_PATH):
 def create_multicast_socket(group, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # SO_REUSEPORT é necessário em macOS/BSD para vários nós no mesmo porto
-    # multicast na mesma máquina (essencial para testar 3/8/15 nós localmente).
     if hasattr(socket, "SO_REUSEPORT"):
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
@@ -336,10 +297,7 @@ def create_multicast_socket(group, port):
             pass
     sock.bind(("", port))
     membership = struct.pack(
-        "4s4s",
-        socket.inet_aton(group),
-        socket.inet_aton("0.0.0.0"),
-    )
+        "4s4s", socket.inet_aton(group), socket.inet_aton("0.0.0.0"))
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
     return sock
 
@@ -349,7 +307,6 @@ def broadcast(sock, group, port, message):
 
 
 def display_delivered(node, delivered):
-    """Exibe as mensagens entregues (só grupo ou unicast destinado a este nó)."""
     for m in delivered:
         receiver = m.get("receiver", 0)
         if receiver != 0 and str(receiver) != node.process_id:
@@ -367,23 +324,19 @@ def receive_loop(sock, node, group, port, stop_event):
 
             if message["id"] == node.process_id:
                 continue  # ignora o próprio eco do multicast
-
-            # Injeção de perda para teste de confiabilidade (DROP_PROB>0).
             if DROP_PROB and random.random() < DROP_PROB:
-                continue  # simula datagrama perdido
+                continue  # simula datagrama perdido (teste de confiabilidade)
 
             mtype = message.get("type")
             if mtype == "DATA":
-                ack, delivered = node.on_data(message)
-                if ack is not None:
-                    broadcast(sock, group, port, ack)
+                delivered = node.on_stream(message)
+                broadcast(sock, group, port, node.make_heartbeat())  # convergência rápida
                 display_delivered(node, delivered)
-            elif mtype == "ACK":
-                delivered = node.on_ack(message)
-                display_delivered(node, delivered)
+            elif mtype == "HEARTBEAT":
+                display_delivered(node, node.on_stream(message))
             elif mtype == "NACK":
                 for resend in node.on_nack(message):
-                    broadcast(sock, group, port, resend)  # DATA e/ou ACK
+                    broadcast(sock, group, port, resend)
             elif mtype == "MARKER":
                 forward, done = node.on_marker(message)
                 if forward is not None:
@@ -398,8 +351,8 @@ def receive_loop(sock, node, group, port, stop_event):
 
 
 def retransmit_loop(sock, node, group, port, stop_event):
-    """Thread de confiabilidade: reenvia periodicamente DATA/ACK pendentes e
-    pede (NACK) as mensagens que faltam, até tudo ser entregue."""
+    """Confiabilidade + liveness: batimento periódico, NACK de lacunas e
+    reenvio do próprio DATA pendente, até tudo ser entregue."""
     while not stop_event.wait(RETRANSMIT_INTERVAL):
         try:
             for msg in node.retransmit_tick():
@@ -488,17 +441,12 @@ def main():
     sock = create_multicast_socket(group, port)
     stop_event = threading.Event()
 
-    receiver = threading.Thread(
-        target=receive_loop, args=(sock, node, group, port, stop_event),
-        daemon=True,
-    )
-    receiver.start()
-
-    retransmitter = threading.Thread(
-        target=retransmit_loop, args=(sock, node, group, port, stop_event),
-        daemon=True,
-    )
-    retransmitter.start()
+    threading.Thread(target=receive_loop,
+                     args=(sock, node, group, port, stop_event),
+                     daemon=True).start()
+    threading.Thread(target=retransmit_loop,
+                     args=(sock, node, group, port, stop_event),
+                     daemon=True).start()
 
     try:
         ui_loop(sock, node, group, port, stop_event)

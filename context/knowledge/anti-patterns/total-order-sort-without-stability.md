@@ -15,7 +15,10 @@ Tentar obter ordem total apenas ordenando o buffer pela chave total e entregando
 
 ## Manifestação histórica
 
-- **2026-08-31** — Identificado na revisão da ADR-0005 antes de codar. O `can_deliver` atual garante ordem **causal**, não total; simplesmente trocar por sort+entrega do topo seria regressão silenciosa. Referência: [[decisions/0005]].
+- **2026-08-31** — Identificado na revisão da ADR-0005 antes de codar. O `can_deliver` garante ordem **causal**, não total; sort+entrega do topo seria regressão silenciosa. Referência: [[decisions/0005]].
+- **2026-09-01** — **Incidente real:** a estabilidade *"todos os nós deram ACK em m"* (que parecia corrigir o item acima) **também é insuficiente**. Sob 50% de perda, ~1/3 das execuções entregou `2:1` antes de `1:1` em alguns nós → filas divergentes (R4 quebrado). Custo: bug latente que passou por vários testes de baixa perda. Correção em [[decisions/0008]]. Referência: `context/evolution/buglog.md#2026-09-01`.
+
+> **Lição:** nenhuma das duas condições fracas serve — nem `sort`+topo, nem "todos ACKaram m". A correta é *"de todo nó ≠ origem, já processei em ordem FIFO algo com chave > m"* (+ heartbeats + FIFO por origem).
 
 ## O que evitar
 

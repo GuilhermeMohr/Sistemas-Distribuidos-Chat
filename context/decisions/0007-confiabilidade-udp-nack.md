@@ -15,11 +15,11 @@ Adicionar uma **camada de confiabilidade por retransmissão sob demanda (NACK)**
 
 Mecanismo:
 1. **Cache de mensagens** (`message_store`): cada nó guarda os `DATA` que enviou/recebeu, para poder retransmitir.
-2. **NACK** (novo tipo de mensagem): pedido de re-sincronização de um `message_id`. Ao receber um NACK, um nó responde com: o `DATA` (se for a origem e o tiver) e/ou o seu `ACK` (se conhece a mensagem). Assim um único NACK recupera **tanto perda de DATA quanto de ACK**.
-3. **Thread de retransmissão** (`retransmit_tick`, a cada 1s), que difunde:
-   - o meu próprio `DATA` ainda não entregue (cobre perda do envio original, inclusive da 1ª mensagem, cuja ausência não gera lacuna detectável no destino);
-   - se a entrega está travada no **topo** da hold-back queue: `NACK` da mensagem que falta (lacuna) ou `NACK` do próprio topo (falta de ACK).
-4. Tudo **idempotente** e limitado ao que está pendente (holdback) → converge e para quando tudo é entregue.
+2. **NACK** (novo tipo de mensagem): pedido de re-sincronização de um `message_id`. Ao receber um NACK, a **origem** reenvia a mensagem de fluxo pedida (DATA ou HEARTBEAT) do seu `message_store`.
+3. **Thread de retransmissão** (`retransmit_tick`, a cada 1s), que difunde: um **HEARTBEAT** (liveness — ver [[decisions/0008]]), `NACK` para cada **lacuna** por origem (fluxo fora de ordem à espera) e o meu próprio `DATA` ainda não entregue (cobre perda do 1º envio, cuja ausência não gera lacuna detectável).
+4. Tudo **idempotente** e limitado ao pendente → converge e para quando tudo é entregue.
+
+> **Ajuste (2026-09-01, [[decisions/0008]]):** a versão inicial reenviava ACKs em resposta a NACK. Com a correção da ordem total, os **ACKs foram removidos**; o fluxo FIFO por origem (DATA/HEARTBEAT) + NACK cobre perda de DATA e a liveness.
 
 **Fora de escopo:** garantia de entrega sob partição permanente ou queda de nó (se a origem cai antes de retransmitir uma mensagem que ninguém mais tem, ela se perde). Recuperação de MARKER perdido no snapshot também não é tratada (documentada como limitação).
 
