@@ -43,7 +43,7 @@ Validação: `test_ordem_total.py` (concorrente/causal/duplicata/snapshot) + tes
 ```
 recvfrom(65536) -> parse JSON -> dispatch por 'type'
     DATA      -> Node.on_stream() -> FIFO por origem -> holdback -> try_deliver()
-    HEARTBEAT -> Node.on_stream() -> avança latest_key -> try_deliver()
+    HEARTBEAT -> Node.on_stream() -> avança fifo_frontier -> try_deliver()
     NACK      -> Node.on_nack()   -> origem retransmite a mensagem pedida
     MARKER    -> Node.on_marker() -> snapshot Chandy-Lamport
 ```
@@ -73,14 +73,14 @@ def _try_deliver(self):                 # com o lock
         m = min(self.holdback, key=self.total_key)
         k = self.total_key(m); origin = m["id"]
         # estabilidade: de TODO nó != origem, já processei (FIFO) algo com chave > k
-        if not all(self.latest_key[o] > k for o in self.node_ids if o != origin):
+        if not all(self.fifo_frontier[o] > k for o in self.node_ids if o != origin):
             break
         self.holdback.remove(m)
         self.delivery_order.append(m["message_id"]); delivered.append(m)
     return delivered
 ```
 
-- `latest_key[o]` avança **só** via processamento **FIFO por origem** (`next_expected`+`reorder_buf`+dedup+NACK); fora de ordem vai ao buffer e não avança nada (fecha o UDP não-FIFO).
+- `fifo_frontier[o]` avança **só** via processamento **FIFO por origem** (`next_expected`+`reorder_buf`+dedup+NACK); fora de ordem vai ao buffer e não avança nada (fecha o UDP não-FIFO).
 - **Heartbeats** periódicos + batimento imediato ao receber DATA dão liveness/convergência.
 
 ### Exemplo numérico (para o relatório §10.8)

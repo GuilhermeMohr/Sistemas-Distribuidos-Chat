@@ -19,8 +19,8 @@ Adotar a **condição de estabilidade canônica** da Abordagem A (multicast tota
 
 Peças que tornam isso correto sobre UDP:
 
-1. **`latest_key[o]`** = maior chave já processada **em ordem contígua** de cada nó `o`. Só avança via processamento FIFO.
-2. **FIFO por origem** (`next_expected` + `reorder_buf` + dedup + NACK): uma mensagem fora de ordem é **bufferizada** e **não** avança `latest_key` até a lacuna ser preenchida. Isto fecha o buraco do UDP não-FIFO — um batimento posterior não "fura" a ordem.
+1. **`fifo_frontier[o]`** = maior chave já processada **em ordem contígua** de cada nó `o`. Só avança via processamento FIFO.
+2. **FIFO por origem** (`next_expected` + `reorder_buf` + dedup + NACK): uma mensagem fora de ordem é **bufferizada** e **não** avança `fifo_frontier` até a lacuna ser preenchida. Isto fecha o buraco do UDP não-FIFO — um batimento posterior não "fura" a ordem.
 3. **HEARTBEAT** periódico: cada nó difunde batimentos (que avançam seu próprio progresso), para que nós silenciosos não travem a fila. Ao receber um DATA, o nó também emite um batimento imediato (convergência rápida).
 4. **ACKs removidos:** o papel de "algo posterior de todos" passa a ser cumprido por DATA/HEARTBEAT no fluxo FIFO. Um único mecanismo (fluxo FIFO + batimento) substitui os ACKs.
 
@@ -57,7 +57,7 @@ Uma **revisão adversarial externa** apontou um suposto P0 de *safety*: recepç�
 
 **Investigação empírica** (fuzzer `test_fuzz_ordem_total.py`: perda 20–50% + reordenação aleatória, 3–6 nós, centenas de execuções pseudo-aleatórias + o cenário exato do veredito):
 
-- **Safety NÃO viola** (nenhuma divergência de ordem em nenhuma execução). O suposto P0 é **falso-positivo**. **Razão:** a chave de cada stream é **monotônica na seq** — a contaminação infla uniformemente as chaves das mensagens do próprio nó, e `latest_key[o]` (fronteira FIFO) continua honesto (chave menor ⇒ seq menor ⇒ já processada FIFO). Não há como `latest_key[o] > K` sem ter processado FIFO tudo de `o` com chave ≤ K.
+- **Safety NÃO viola** (nenhuma divergência de ordem em nenhuma execução). O suposto P0 é **falso-positivo**. **Razão:** a chave de cada stream é **monotônica na seq** — a contaminação infla uniformemente as chaves das mensagens do próprio nó, e `fifo_frontier[o]` (fronteira FIFO) continua honesto (chave menor ⇒ seq menor ⇒ já processada FIFO). Não há como `fifo_frontier[o] > K` sem ter processado FIFO tudo de `o` com chave ≤ K.
 - **Liveness (P1) confirmado:** a recuperação por NACK é de **uma lacuna por rodada**; sob perda severa é **gradual** (o próprio revisor classificou como "não-P0"). Tentou-se NACK de faixa, mas causa **tempestade de reenvios** — revertido; mantém-se NACK unitário (correto e limitado). Recuperação eventual confirmada (dreno suficiente → completude total). **Safety é sempre preservada**, independente da velocidade de recuperação.
 
 Limitação P1 registrada em `context/evolution/todo.md`.

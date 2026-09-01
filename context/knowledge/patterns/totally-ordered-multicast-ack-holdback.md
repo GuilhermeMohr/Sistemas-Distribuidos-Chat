@@ -34,7 +34,7 @@ def _try_deliver(self):                     # com o lock
         m = min(self.holdback, key=self.total_key)
         k = self.total_key(m); origin = m["id"]
         # estabilidade: de TODO nó != origem, já processei (FIFO) algo com chave > k
-        if not all(self.latest_key[o] > k for o in self.node_ids if o != origin):
+        if not all(self.fifo_frontier[o] > k for o in self.node_ids if o != origin):
             break
         self.holdback.remove(m)
         self.delivery_order.append(m["message_id"]); delivered.append(m)
@@ -43,7 +43,7 @@ def _try_deliver(self):                     # com o lock
 
 Pontos-chave:
 
-- `latest_key[o]` avança **só** via processamento **FIFO** por origem (`next_expected` + `reorder_buf`); um datagrama fora de ordem é bufferizado e não avança nada até a lacuna ser preenchida (NACK). Isso fecha o buraco do UDP não-FIFO.
+- `fifo_frontier[o]` avança **só** via processamento **FIFO** por origem (`next_expected` + `reorder_buf`); um datagrama fora de ordem é bufferizado e não avança nada até a lacuna ser preenchida (NACK). Isso fecha o buraco do UDP não-FIFO.
 - **HEARTBEAT** periódico dá liveness (nós silenciosos não travam); ao receber DATA, envia-se um batimento imediato (convergência rápida).
 - A chave `(sum(V), id, seq)` é a mesma do enunciado; apenas a condição de entrega é a correta.
 
@@ -56,7 +56,7 @@ Pontos-chave:
 
 ## Como detectar uso correto (opcional)
 
-- Sinal: entrega condicionada a `all(latest_key[o] > k for o != origin)` com `latest_key` avançando só em ordem FIFO.
+- Sinal: entrega condicionada a `all(fifo_frontier[o] > k for o != origin)` com `fifo_frontier` avançando só em ordem FIFO.
 - Falha comum: usar "todos ACKaram m" ou `sort`+topo sem FIFO — ver anti-pattern relacionado.
 
 ## Related

@@ -58,7 +58,7 @@ Cada nó é um processo Python que executa `multicast.py`. O código separa quat
                      │  │  classe Node      │  │  snapshot     │   │
                      │  │  (state_lock)     │  │ Chandy-Lamport│   │
                      │  │  holdback         │  └──────────────┘    │
-                     │  │  latest_key       │                      │
+                     │  │  fifo_frontier       │                      │
                      │  │  vectorial_time   │                      │
                      │  │  delivery_order   │                      │
                      │  └──────────────────┘                      │
@@ -79,9 +79,9 @@ Nó A envia DATA ──multicast──► todos os nós
                                    │  processa em ordem FIFO por origem
                                    │  (dedup; fora de ordem → buffer + NACK)
                                    ▼
-                          guarda na hold-back queue; atualiza latest_key[A]
+                          guarda na hold-back queue; atualiza fifo_frontier[A]
                                    │  (e emite um HEARTBEAT imediato)
-        HEARTBEAT/DATA de cada nó ─┤  avançam latest_key[nó]
+        HEARTBEAT/DATA de cada nó ─┤  avançam fifo_frontier[nó]
                                    ▼
    try_deliver(): entrega m (menor chave) quando, de TODO nó != origem,
    já processou (FIFO) algo com chave > m
@@ -240,8 +240,8 @@ Ordenar pela chave **não basta**: sob rede assíncrona, uma mensagem de chave m
 
 Isso garante que nenhuma mensagem menor pode mais chegar de nenhum outro nó. Três peças tornam isso robusto sobre UDP:
 
-1. **`latest_key[o]`** = maior chave já processada **em ordem contígua** de cada nó `o`. Só avança pelo processamento FIFO.
-2. **FIFO por origem** (`next_expected` + `reorder_buf` + deduplicação + NACK): uma mensagem fora de ordem é **bufferizada** e **não** avança `latest_key` até a lacuna ser preenchida — assim um batimento posterior não "fura" a ordem sobre o UDP, que não é FIFO.
+1. **`fifo_frontier[o]`** = maior chave já processada **em ordem contígua** de cada nó `o`. Só avança pelo processamento FIFO.
+2. **FIFO por origem** (`next_expected` + `reorder_buf` + deduplicação + NACK): uma mensagem fora de ordem é **bufferizada** e **não** avança `fifo_frontier` até a lacuna ser preenchida — assim um batimento posterior não "fura" a ordem sobre o UDP, que não é FIFO.
 3. **Batimentos (HEARTBEAT)** periódicos: cada nó difunde batimentos que avançam o seu próprio progresso, para que nós silenciosos não travem a fila. Ao receber uma `DATA`, o nó também emite um batimento imediato (convergência rápida).
 
 Como todos os nós usam a mesma chave e a mesma condição, a sequência de entrega — a `delivery_order` — é **idêntica em todos os nós**.
@@ -290,7 +290,7 @@ Como o transporte é multicast UDP, a camada de ordenação trata os três probl
 
 - **Duplicação:** cada mensagem tem `message_id = origem:seq`; datagramas repetidos são ignorados (deduplicação).
 - **Reordenação:** a hold-back queue + FIFO por origem já garantem a ordem correta mesmo com chegada fora de ordem.
-- **Perda:** retransmissão sob demanda por **NACK**. Uma thread periódica (a cada 1 s) difunde: (a) um **HEARTBEAT** (liveness, que também avança `latest_key`); (b) um `NACK` para cada **lacuna** por origem (mensagem fora de ordem à espera no buffer); (c) o próprio `DATA` ainda não entregue (recupera a perda do 1º envio, cuja ausência não gera lacuna no destino). Ao receber um `NACK`, a **origem** reenvia a mensagem de fluxo pedida (DATA/HEARTBEAT). O processo é idempotente e limitado ao pendente, convergindo e parando quando tudo é entregue.
+- **Perda:** retransmissão sob demanda por **NACK**. Uma thread periódica (a cada 1 s) difunde: (a) um **HEARTBEAT** (liveness, que também avança `fifo_frontier`); (b) um `NACK` para cada **lacuna** por origem (mensagem fora de ordem à espera no buffer); (c) o próprio `DATA` ainda não entregue (recupera a perda do 1º envio, cuja ausência não gera lacuna no destino). Ao receber um `NACK`, a **origem** reenvia a mensagem de fluxo pedida (DATA/HEARTBEAT). O processo é idempotente e limitado ao pendente, convergindo e parando quando tudo é entregue.
 
 Este mecanismo foi validado injetando perda artificial de pacotes: com **30%** (3/3 execuções) e mesmo **50%** (8/8 execuções), todos os nós convergiram para a mesma ordem global — inclusive após a correção do bug de estabilidade descrito na seção 6.
 
