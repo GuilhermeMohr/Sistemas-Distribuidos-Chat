@@ -28,7 +28,7 @@ Project backlog. Tracked items beyond active intents (research debt, follow-ups,
 - [x] Estado compartilhado sem lock → `Node` com `threading.Lock` único (ver [[decisions/0004]]).
 - [x] `seq` por origem no envelope (`message_id=origin:seq`) + dedup + FIFO por origem.
 - [x] `recvfrom(1024)` → `recvfrom(65536)`.
-- [~] Não-confiabilidade UDP: dedup + detecção de lacuna implementados; **recuperação/retransmissão de perdas segue fora de escopo** (documentar no relatório §10.6) — Operational Rule 5.
+- [x] Não-confiabilidade UDP: dedup + hold-back + **retransmissão por NACK** (perda de DATA e ACK) — [[decisions/0007]] / [[knowledge/patterns/reliable-multicast-nack-retransmission]]. Validado com 30% e 50% de perda. Limites restantes: queda da origem e MARKER perdido no snapshot (documentar §10.6).
 
 ## Infra / Segurança (não-bloqueante)
 

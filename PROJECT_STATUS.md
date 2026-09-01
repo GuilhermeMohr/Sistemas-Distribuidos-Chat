@@ -44,8 +44,10 @@ Validação: `test_ordem_total.py` (concorrente/causal/duplicata/snapshot) + tes
 recvfrom(65536) -> parse JSON -> dispatch por 'type'
     DATA   -> Node.on_data()  -> holdback_queue -> try_deliver()
     ACK    -> Node.on_ack()   -> acks           -> try_deliver()
+    NACK   -> Node.on_nack()  -> retransmite DATA/ACK pedido
     MARKER -> Node.on_marker() -> snapshot Chandy-Lamport
 ```
+Uma thread de retransmissão (~1s) reenvia DATA/ACK pendentes e emite NACK do que falta, recuperando perdas UDP (ver seção 8).
 
 - **1 processo = 1 nó.** Identidade via `sys.argv[1]`; membros lidos de `nos.json`.
 - **Concorrência:** 2 threads (recepção `daemon` + UI). Todo estado compartilhado no `Node`, protegido por um `threading.Lock` único; I/O e `print` fora do lock. Shutdown via `threading.Event` + `socket.close()`.
@@ -138,9 +140,11 @@ Teste de corretude: `python test_ordem_total.py`.
 - **ADR-0005** Ordem total = **Abordagem A** (relógio vetorial + chave total + ACK de estabilidade + hold-back). Sem líder.
 - **ADR-0006** Estado global = **Chandy-Lamport** (canais lógicos por origem).
 
+- **ADR-0007** Confiabilidade sobre UDP: retransmissão por NACK (recupera perda de DATA e ACK).
+
 **Limitações (documentar no relatório §10.6):**
-- UDP não confiável: há dedup (`message_id`) + detecção de lacuna, mas **recuperação/retransmissão de perdas está fora de escopo** — um DATA/ACK/MARKER perdido estagna a entrega/snapshot daquela origem/canal.
-- ACK de estabilidade custa O(N²) mensagens por difusão (aceitável para 15 nós; maior latência).
+- UDP não confiável: dedup + hold-back + **retransmissão por NACK** recuperam duplicação, reordenação e **perda** (validado com 30% e 50% de perda). Limites restantes: **queda da origem** antes de retransmitir, e **MARKER de snapshot perdido**, não são recuperados.
+- ACK de estabilidade custa O(N²) mensagens por difusão (aceitável para 15 nós; maior latência); NACKs adicionam tráfego sob perda.
 - Tráfego multicast não é cifrado/autenticado (inerente ao trabalho).
 
 ---

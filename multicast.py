@@ -3,11 +3,12 @@
 Trabalho 1 de Sistemas Distribuídos (UNIVALI). Cada nó é um processo
 independente que se comunica apenas por mensagens de rede (multicast UDP).
 
-Arquitetura (separação protocolo / ordenação / UI):
+Arquitetura (separação protocolo / ordenação / snapshot / UI):
     recvfrom -> parse JSON -> dispatch por 'type'
         DATA   -> Node.on_data()  -> holdback_queue -> try_deliver()
         ACK    -> Node.on_ack()   -> acks           -> try_deliver()
-        MARKER -> (CP4 — snapshot Chandy-Lamport, ainda não implementado)
+        NACK   -> Node.on_nack()  -> retransmite o DATA pedido
+        MARKER -> Node.on_marker() -> snapshot Chandy-Lamport
 
 Ordem total (Abordagem A — ADR-0005): relógio vetorial para causalidade +
 chave total determinística + ACK de estabilidade sobre uma hold-back queue.
@@ -15,6 +16,11 @@ Uma mensagem só é entregue quando é o TOPO da fila (por total_key) E todos
 os nós conhecidos confirmaram (ACK). Isso — e não um simples sort — é o que
 garante que todos os nós entreguem na MESMA ordem (ver anti-pattern
 total-order-sort-without-stability).
+
+Confiabilidade sobre UDP: dedup por message_id + hold-back (reordenação) +
+retransmissão sob demanda (NACK) e reenvio periódico de DATA/ACK pendentes
+(cobre perda de DATA e de ACK). Recuperação converge e para quando tudo é
+entregue.
 """
 
 import socket
@@ -22,9 +28,14 @@ import struct
 import threading
 import json
 import sys
+import os
+import random
 
 CONFIG_PATH = "nos.json"
 RECV_BUFFER = 65536  # vetor de 15+ posições + payload não cabe em 1024
+RETRANSMIT_INTERVAL = 1.0  # segundos entre ciclos de retransmissão
+# Injeção de perda para TESTE (0.0 = desligado): descarta datagramas recebidos.
+DROP_PROB = float(os.environ.get("DROP_PROB", "0"))
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +63,9 @@ class Node:
         self.delivery_order = []          # ordem GLOBAL (idêntica em todos os nós)
         self.local_order = []             # ordem LOCAL (ordem de eventos deste nó)
         self.delivered_seq = {n: 0 for n in self.node_ids}  # FIFO por origem
+
+        # Confiabilidade sobre UDP: cache para retransmissão sob demanda (NACK).
+        self.message_store = {}           # message_id -> envelope DATA (para reenvio)
 
         # Snapshot Chandy-Lamport (R6): um registro por snapshot_id.
         self.snapshots = {}
@@ -96,6 +110,7 @@ class Node:
             self.acks.setdefault(message_id, set()).add(self.process_id)
             self.holdback_queue.append(message)
             self.local_order.append(message_id)
+            self.message_store[message_id] = message  # para retransmissão
         return message
 
     # -- recepção -------------------------------------------------------------
@@ -108,6 +123,7 @@ class Node:
             if message_id in self.received_ids:
                 return None, []          # duplicata (UDP pode duplicar)
             self.received_ids.add(message_id)
+            self.message_store[message_id] = message  # para retransmissão
             self.holdback_queue.append(message)
             self.local_order.append(message_id)
             # A origem conhece a própria mensagem; nós também.
@@ -131,6 +147,57 @@ class Node:
             self.acks.setdefault(message_id, set()).add(message["id"])
             return self._try_deliver()
 
+    # -- confiabilidade sobre UDP (retransmissão) ----------------------------
+
+    def on_nack(self, message):
+        """Processa um NACK (pedido de re-sincronização de uma mensagem).
+        Retorna a lista de mensagens a difundir em resposta:
+        - se sou a origem e tenho o DATA em cache → reenvio o DATA;
+        - se já recebi/conheço a mensagem → reenvio o meu ACK.
+        Assim um único NACK recupera tanto DATA perdida quanto ACK perdido."""
+        message_id = message["message_id"]
+        resends = []
+        with self._lock:
+            if (message_id.split(":")[0] == self.process_id
+                    and message_id in self.message_store):
+                resends.append(self.message_store[message_id])
+            if message_id in self.received_ids:
+                resends.append({"type": "ACK", "id": self.process_id,
+                                "message_id": message_id})
+        return resends
+
+    def retransmit_tick(self):
+        """Chamada periódica pela thread de retransmissão. Retorna a lista de
+        mensagens a difundir para recuperar de perdas UDP (converge e para
+        quando tudo é entregue):
+
+        - Meu próprio DATA ainda não entregue → reenvia o DATA (cobre a perda
+          do envio original, inclusive a 1ª mensagem, cuja ausência não gera
+          lacuna detectável no destino).
+        - Se a entrega está travada no topo da fila:
+          * por lacuna (falta a mensagem anterior da origem) → NACK pedindo a
+            mensagem que falta;
+          * por falta de ACK (tenho a mensagem, mas nem todos confirmaram) →
+            NACK do próprio topo, para que quem já a conhece reenvie DATA/ACK.
+        """
+        out = []
+        with self._lock:
+            for m in self.holdback_queue:
+                if m["id"] == self.process_id:
+                    out.append(m)                       # reenvia meu DATA
+            if self.holdback_queue:
+                top = min(self.holdback_queue, key=self.total_key)
+                origin = top["id"]
+                seq = top["vectorial_time"][origin]
+                prox = self.delivered_seq[origin] + 1
+                if seq > prox:                          # lacuna
+                    out.append({"type": "NACK", "id": self.process_id,
+                                "message_id": f"{origin}:{prox}"})
+                elif len(self.acks.get(top["message_id"], set())) < len(self.node_ids):
+                    out.append({"type": "NACK", "id": self.process_id,
+                                "message_id": top["message_id"]})
+        return out
+
     # -- entrega (coração da ordem total) ------------------------------------
 
     def _try_deliver(self):
@@ -147,8 +214,8 @@ class Node:
             if len(self.acks.get(message_id, set())) < len(self.node_ids):
                 break
             # (2) FIFO por origem: sem lacuna (mensagem anterior da origem
-            #     já entregue). Sob perda UDP isto pode estagnar a origem —
-            #     limitação documentada (recuperação fora de escopo).
+            #     já entregue). Sob perda UDP, a lacuna é recuperada por NACK
+            #     (ver retransmit_tick / on_nack) — a espera é temporária.
             if seq != self.delivered_seq[origin] + 1:
                 break
 
@@ -301,6 +368,10 @@ def receive_loop(sock, node, group, port, stop_event):
             if message["id"] == node.process_id:
                 continue  # ignora o próprio eco do multicast
 
+            # Injeção de perda para teste de confiabilidade (DROP_PROB>0).
+            if DROP_PROB and random.random() < DROP_PROB:
+                continue  # simula datagrama perdido
+
             mtype = message.get("type")
             if mtype == "DATA":
                 ack, delivered = node.on_data(message)
@@ -310,6 +381,9 @@ def receive_loop(sock, node, group, port, stop_event):
             elif mtype == "ACK":
                 delivered = node.on_ack(message)
                 display_delivered(node, delivered)
+            elif mtype == "NACK":
+                for resend in node.on_nack(message):
+                    broadcast(sock, group, port, resend)  # DATA e/ou ACK
             elif mtype == "MARKER":
                 forward, done = node.on_marker(message)
                 if forward is not None:
@@ -321,6 +395,19 @@ def receive_loop(sock, node, group, port, stop_event):
             break  # socket fechado no shutdown
         except Exception as error:
             print(f"Erro na recepção: {error}")
+
+
+def retransmit_loop(sock, node, group, port, stop_event):
+    """Thread de confiabilidade: reenvia periodicamente DATA/ACK pendentes e
+    pede (NACK) as mensagens que faltam, até tudo ser entregue."""
+    while not stop_event.wait(RETRANSMIT_INTERVAL):
+        try:
+            for msg in node.retransmit_tick():
+                broadcast(sock, group, port, msg)
+        except OSError:
+            break
+        except Exception as error:
+            print(f"Erro na retransmissão: {error}")
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +493,12 @@ def main():
         daemon=True,
     )
     receiver.start()
+
+    retransmitter = threading.Thread(
+        target=retransmit_loop, args=(sock, node, group, port, stop_event),
+        daemon=True,
+    )
+    retransmitter.start()
 
     try:
         ui_loop(sock, node, group, port, stop_event)
