@@ -21,14 +21,12 @@ O foco do trabalho — e desta solução — é o **middleware de comunicação 
 
 ## 2. Papel de cada membro da equipe
 
-> **⚠️ A CONFIRMAR PELA EQUIPE.** A divisão abaixo é uma sugestão baseada no histórico de commits do repositório. Ajustem os nomes e a distribuição conforme a realidade da equipe (até 4 integrantes).
+Equipe de 2 integrantes. Divisão de contribuições:
 
-| Integrante | Contribuição principal |
-|---|---|
-| **Guilherme Mohr** | Camada de rede inicial (socket multicast UDP, ingresso no grupo), envio de mensagem de grupo e unicast (`receiver`), primeira versão do relógio vetorial e entrega causal. |
-| **Arthur Hawreliuk** | Reestruturação para **ordem total** (chave total + hold-back + condição de estabilidade "ouvi-maior-de-todos" + batimentos), **estado global** (snapshot de Chandy-Lamport), confiabilidade sobre UDP, infraestrutura de nós (`nos.json` + launcher), testes automatizados e documentação técnica. |
-| *(integrante 3)* | *a definir* |
-| *(integrante 4)* | *a definir* |
+| Integrante | RA | Contribuição principal |
+|---|---|---|
+| **Guilherme Mohr** | _(a preencher)_ | Camada de rede (socket multicast UDP, ingresso no grupo), envio de mensagem de grupo e unicast (`receiver`), primeira versão do relógio vetorial e entrega causal. |
+| **Arthur Hawreliuk** | _(a preencher)_ | Ordem total (chave total + hold-back + condição de estabilidade "ouvi-maior-de-todos" + batimentos), estado global (snapshot de Chandy-Lamport), confiabilidade sobre UDP (retransmissão por NACK), infraestrutura de nós (`nos.json` + launcher), testes automatizados e documentação técnica. |
 
 ---
 
@@ -322,7 +320,7 @@ Estado capturado por nó: relógio vetorial, ordem global de entrega (`delivery_
 
 ## Anexo A — Checklist de autoavaliação (§12 do enunciado)
 
-- [x] Equipe com até 4 integrantes; papéis descritos *(confirmar nomes na seção 2)*.
+- [x] Equipe com até 4 integrantes (2: Guilherme Mohr, Arthur Hawreliuk); papéis descritos na seção 2.
 - [x] Sistema inicia com número configurável de nós e foi testado com 15.
 - [x] Comunicação de grupo (multicast) funcionando e justificada.
 - [x] Filas de delivery (ordem global) idênticas em todos os nós.
