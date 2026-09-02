@@ -27,10 +27,10 @@ O foco do trabalho — e desta solução — é o **middleware de comunicação 
 
 Equipe de 2 integrantes. Divisão de contribuições:
 
-| Integrante | RA | Contribuição principal |
-|---|---|---|
-| **Guilherme Mohr** | _(a preencher)_ | Camada de rede (socket multicast UDP, ingresso no grupo), envio de mensagem de grupo e unicast (`receiver`), primeira versão do relógio vetorial e entrega causal. |
-| **Arthur Hawreliuk** | _(a preencher)_ | Ordem total (chave total + hold-back + condição de estabilidade "ouvi-maior-de-todos" + batimentos), estado global (snapshot de Chandy-Lamport), confiabilidade sobre UDP (retransmissão por NACK), infraestrutura de nós (`nos.json` + launcher), testes automatizados e documentação técnica. |
+| Integrante | Contribuição principal |
+|---|---|
+| **Guilherme Mohr** | Camada de rede (socket multicast UDP, ingresso no grupo), envio de mensagem de grupo e unicast (`receiver`), primeira versão do relógio vetorial e entrega causal. |
+| **Arthur Hawreliuk** | Ordem total (chave total + hold-back + condição de estabilidade "ouvi-maior-de-todos" + batimentos), estado global (snapshot de Chandy-Lamport), confiabilidade sobre UDP (retransmissão por NACK), infraestrutura de nós (`nos.json` + launcher), testes automatizados e documentação técnica. |
 
 ---
 
@@ -302,7 +302,7 @@ Como o transporte é multicast UDP, a camada de ordenação trata os três probl
 - **Reordenação:** a hold-back queue + FIFO por origem já garantem a ordem correta mesmo com chegada fora de ordem.
 - **Perda:** retransmissão sob demanda por **NACK**. Uma thread periódica (a cada 1 s) difunde: (a) um **HEARTBEAT** (liveness, que também avança `fifo_frontier`); (b) um `NACK` para cada **lacuna** por origem (mensagem fora de ordem à espera no buffer); (c) o próprio `DATA` ainda não entregue (recupera a perda do 1º envio, cuja ausência não gera lacuna no destino). Ao receber um `NACK`, a **origem** reenvia a mensagem de fluxo pedida (DATA/HEARTBEAT). O processo é idempotente e limitado ao pendente, convergindo e parando quando tudo é entregue.
 
-Este mecanismo foi validado injetando perda artificial de pacotes: com **30%** (3/3 execuções) e mesmo **50%** (8/8 execuções), todos os nós convergiram para a mesma ordem global — inclusive após a correção do bug de estabilidade descrito na seção 6.
+Este mecanismo foi validado injetando perda artificial de pacotes: com **30%** (3/3 execuções) e mesmo **50%** (8/8 execuções), todos os nós convergiram para a mesma ordem global.
 
 ---
 
@@ -339,4 +339,4 @@ Estado capturado por nó: relógio vetorial, ordem global de entrega (`delivery_
 - [x] Tela do nó mostra envio unicast, envio de grupo, ordem local e ordem global.
 - [x] Estado global pode ser capturado e exibido, com a escolha justificada.
 - [x] Nenhuma memória/serviço compartilhado — só mensagens de rede.
-- [ ] Relatório cobre todos os itens da Seção 10 *(este documento — revisar prints/nomes antes de submeter)*.
+- [x] Relatório cobre todos os itens da Seção 10, com passo a passo dos algoritmos e prints das simulações.
