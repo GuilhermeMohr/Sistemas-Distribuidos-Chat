@@ -3,7 +3,7 @@
 Trabalho 1 de Sistemas Distribuídos (UNIVALI). Cada nó é um processo
 independente que se comunica apenas por mensagens de rede (multicast UDP).
 
-Ordem total (Abordagem A — ADR-0005/ADR-0008): relógio vetorial para
+Ordem total (Abordagem A do enunciado): relógio vetorial para
 causalidade + chave total determinística + condição de estabilidade correta:
 uma mensagem m só é entregue quando, de **todos** os outros nós, já se recebeu
 (em ordem FIFO por origem) algo com chave **maior** que m — garantindo que
@@ -201,7 +201,7 @@ class Node:
             out.append(hb)
             # NACK da lacuna por origem (a próxima seq faltante). Um por rodada
             # evita tempestade de reenvios; a recuperação é gradual sob perda
-            # severa (limitação P1 documentada — a corretude/safety é preservada).
+            # severa (a recuperação é gradual, mas a corretude é preservada).
             for o in self.node_ids:
                 if o != self.process_id and self.reorder_buf[o]:
                     out.append({"type": "NACK", "id": self.process_id,
