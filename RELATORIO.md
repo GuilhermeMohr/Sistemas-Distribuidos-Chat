@@ -2,9 +2,13 @@
 ## Comunicação de Grupo, Ordem Total de Mensagens e Estado Global
 
 **Universidade do Vale do Itajaí (UNIVALI)** — Disciplina de Sistemas Distribuídos
+
 **Professor:** Ramicés dos Santos Silva
-**Tema escolhido:** Chat distribuído
-**Repositório:** github.com/GuilhermeMohr/Sistemas-Distribuidos-Chat
+
+**Alunos:** Guilherme Mohr · Arthur Hawreliuk
+
+**Tema escolhido:** Chat distribuído &nbsp;·&nbsp; **Repositório:** github.com/GuilhermeMohr/Sistemas-Distribuidos-Chat
+
 **Data:** setembro de 2026
 
 ---
@@ -56,7 +60,7 @@ Cada nó é um processo Python que executa `multicast.py`. O código separa quat
                      │  │  classe Node      │  │  snapshot     │   │
                      │  │  (state_lock)     │  │ Chandy-Lamport│   │
                      │  │  holdback         │  └──────────────┘    │
-                     │  │  fifo_frontier       │                      │
+                     │  │  fifo_frontier    │                      │
                      │  │  vectorial_time   │                      │
                      │  │  delivery_order   │                      │
                      │  └──────────────────┘                      │
@@ -165,7 +169,15 @@ nó2: global=[1:1, 2:1]   local=[2:1, 1:1]   ← viu 2 antes de 1
 nó3: global=[1:1, 2:1]   local=[2:1, 1:1]   ← viu 2 antes de 1
 ```
 
-> **Nota para a defesa:** ao rodar a simulação, capturem prints da opção "[5] Mostrar ordem global" de cada nó mostrando as filas idênticas — é a principal evidência de que a ordem total funciona.
+### 5.4 Prints da simulação real (3 nós em terminais independentes)
+
+Execução real em três janelas de terminal (um processo por nó, multicast UDP). Os nós 1 e 2 enviaram mensagens de grupo; em seguida, cada nó exibiu a opção **[5] Mostrar ordem global**. Os três terminais mostram a **mesma** fila de entrega — `['1:2', '2:5']` — a evidência do critério de corretude (§8). *(Os números de sequência incluem os batimentos de liveness do protocolo, por isso não são `1:1`/`2:1`.)*
+
+![Terminal do nó 1 — ordem global](prints/print-no1.png)
+
+![Terminal do nó 2 — ordem global](prints/print-no2.png)
+
+![Terminal do nó 3 — ordem global](prints/print-no3.png)
 
 ---
 
@@ -232,7 +244,7 @@ total_key(m) = ( soma(Vm),  id_da_origem,  Vm[origem] )
 
 ### 8.3 Condição de entrega (estabilidade correta)
 
-Ordenar pela chave **não basta**: sob rede assíncrona, uma mensagem de chave menor pode ainda estar em trânsito. **Também não basta** exigir "todos confirmaram m" — isso não garante que nada menor ainda chegará (foi um bug real que corrigimos; ver seção 6 e o buglog). A condição **correta** da Abordagem A é:
+Ordenar pela chave **não basta**: sob rede assíncrona, uma mensagem de chave menor pode ainda estar em trânsito. **Também não basta** exigir "todos confirmaram m" — isso não garante que nada menor ainda chegará (foi um defeito real encontrado e corrigido durante os testes com perda de pacotes). A condição **correta** da Abordagem A é:
 
 > A mensagem `m` (a de **menor** chave na hold-back queue) é entregue quando, de **todo** nó `o ≠ origem(m)`, o nó já **processou em ordem FIFO** alguma mensagem (DATA ou HEARTBEAT) com **chave > chave(m)**.
 

@@ -1,6 +1,6 @@
 """Testes de corretude da ordem total (sem rede real).
 
-Modelo novo (ADR-0008): entrega quando, de TODO nó != origem, já se processou
+Condição de entrega: uma mensagem sai da fila quando, de TODO nó != origem, já se processou
 em ordem uma mensagem com chave > m; batimentos (heartbeat) dão liveness;
 FIFO por origem evita entrega prematura sob reordenação/perda.
 

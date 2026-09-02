@@ -5,7 +5,7 @@ Verifica duas propriedades em muitas execuções pseudo-aleatórias:
   da maior — ou seja, ninguém entrega mensagens em ordem relativa divergente.
 - LIVENESS: após a fase de dreno (sem perda), todos entregam todas as mensagens.
 
-Inclui o cenário do veredito adversarial (recepção fora de ordem -> heartbeat
+Inclui um cenário adversarial dirigido (recepção fora de ordem -> heartbeat
 próprio "contaminado" -> tentativa de estabilidade falsa em outro nó), que
 NÃO deve produzir divergência.
 
@@ -80,7 +80,7 @@ def run_fuzz(seed, n_nodes=4, n_msgs=6, drop=0.35, drain=200000):
     return safety, completo, {i: nodes[i].delivery_order for i in ids}
 
 
-def teste_cenario_veredito():
+def teste_cenario_adversarial():
     """Recepção fora de ordem -> heartbeat contaminado NÃO fura a ordem total."""
     ids = ["1", "2", "3"]
     nodes = {i: Node(i, ids) for i in ids}
@@ -124,6 +124,6 @@ def teste_fuzz(n=50):
 
 
 if __name__ == "__main__":
-    teste_cenario_veredito()
+    teste_cenario_adversarial()
     teste_fuzz()
     print("TODOS OS TESTES DE FUZZ PASSARAM")
