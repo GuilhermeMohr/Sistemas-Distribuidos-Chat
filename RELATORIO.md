@@ -7,7 +7,7 @@
 
 **Alunos:** Guilherme Mohr · Arthur Hawreliuk
 
-**Tema escolhido:** Chat distribuído &nbsp;·&nbsp; **Repositório:** github.com/GuilhermeMohr/Sistemas-Distribuidos-Chat
+**Tema escolhido:** Chat distribuído &nbsp;·&nbsp; **Repositório:** [github.com/GuilhermeMohr/Sistemas-Distribuidos-Chat](https://github.com/GuilhermeMohr/Sistemas-Distribuidos-Chat)
 
 **Data:** setembro de 2026
 
